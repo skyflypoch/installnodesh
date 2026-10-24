@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# WILLVPN REMNANODE INSTALLER v5
-# Installs Docker automatically if it is missing.
-# Asks ONLY:
-# 1) SECRET_KEY
-# 2) whether Hysteria2 is needed
-# 3) Hysteria2 domain, if needed
+# will Remnanode installer v5
 
 REMNA_DIR="/opt/remnanode"
 NODE_PORT="2222"
 CERT_EMAIL="ilyamaksimovmail@gmail.com"
+SITE_PORT="${SELFSTEAL_PORT:-9444}"
+SITE_DIR="$REMNA_DIR/selfsteal/site"
+ACME_DIR="$REMNA_DIR/selfsteal/acme"
+NGINX_CONF="/etc/nginx/conf.d/remnanode-selfsteal.conf"
+RENEW_HOOK="/etc/letsencrypt/renewal-hooks/deploy/restart-remnanode.sh"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
@@ -25,13 +25,118 @@ read_required() {
 ask_yes_no() {
   local answer=""
   read -r -p "$1 [y/N]: " answer </dev/tty
-  case "${answer,,}" in
-    y|yes|д|да) return 0 ;;
+  case "$answer" in
+    y|Y|yes|Yes|YES|д|Д|да|Да|ДА) return 0 ;;
     *) return 1 ;;
   esac
 }
 
+ask_yes_no_default_yes() {
+  local answer=""
+  read -r -p "$1 [Y/n]: " answer </dev/tty
+  case "$answer" in
+    ""|y|Y|yes|Yes|YES|д|Д|да|Да|ДА) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+validate_domain() {
+  local domain="$1" label
+  [[ ${#domain} -le 253 && "$domain" == *.* ]] || die "Некорректный домен: $domain"
+  [[ "$domain" =~ ^[a-z0-9.-]+$ ]] || die "Некорректный домен: $domain"
+  [[ "$domain" != .* && "$domain" != *. && "$domain" != *..* ]] || die "Некорректный домен: $domain"
+  IFS='.' read -r -a labels <<< "$domain"
+  for label in "${labels[@]}"; do
+    [[ ${#label} -ge 1 && ${#label} -le 63 ]] || die "Некорректный домен: $domain"
+    [[ "$label" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] || die "Некорректный домен: $domain"
+  done
+}
+
+write_site() {
+  local variant title subtitle accent background surface layout
+  variant=$(( $(printf '%s' "$SITE_DOMAIN" | cksum | awk '{print $1}') % 6 ))
+  case "$variant" in
+    0) title="The daily page"; subtitle="A little room for the present moment."; accent="#c36e51"; background="#f5f0e8"; surface="#e9dfd1"; layout="normal" ;;
+    1) title="A small moment"; subtitle="Take a second. The rest can wait."; accent="#527d6b"; background="#edf2eb"; surface="#dce8dc"; layout="reverse" ;;
+    2) title="Day by day"; subtitle="One quiet page for today."; accent="#6571a2"; background="#f0f0f7"; surface="#e0e2ef"; layout="normal" ;;
+    3) title="The hours"; subtitle="Time for the things that matter."; accent="#a87554"; background="#f5eee9"; surface="#eadcd2"; layout="reverse" ;;
+    4) title="Here and now"; subtitle="A clear view of this moment."; accent="#417b87"; background="#edf3f3"; surface="#dce9e9"; layout="normal" ;;
+    5) title="Today, simply"; subtitle="A moment to begin again."; accent="#777254"; background="#f3f1e8"; surface="#e6e2d2"; layout="reverse" ;;
+  esac
+  cat > "$SITE_DIR/index.html" <<EOF
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="$background">
+<title>$title — will project</title>
+<style>
+:root{color-scheme:light;--accent:$accent;--background:$background;--surface:$surface}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:var(--background);color:#292b28;font-family:Arial,Helvetica,sans-serif}main{max-width:1100px;min-height:100vh;margin:auto;padding:36px 42px;display:flex;flex-direction:column}header,footer{display:flex;align-items:center;justify-content:space-between;font-size:13px;letter-spacing:.04em}header strong{font-size:17px;letter-spacing:-.04em}header span,footer{color:#777c75}.stage{display:grid;grid-template-columns:1.1fr .9fr;gap:7vw;align-items:center;flex:1;padding:72px 0}.stage.reverse .copy{order:2}.stage.reverse .clock{order:1}.copy{max-width:610px}.eyebrow,.clock-label{color:var(--accent);font-size:13px;font-weight:700;letter-spacing:.13em;text-transform:uppercase}h1{font-size:clamp(54px,8vw,108px);line-height:.98;letter-spacing:-.065em;font-weight:500;margin:23px 0 30px}p{font-size:18px;line-height:1.6;color:#656b65;margin:0}.clock{border-radius:26px;background:var(--surface);padding:36px;min-height:260px;display:flex;flex-direction:column;justify-content:space-between}.clock-time{font-size:clamp(52px,6vw,80px);line-height:1;letter-spacing:-.07em;font-variant-numeric:tabular-nums}.clock-date{color:#60665f;font-size:15px}footer{border-top:1px solid rgba(0,0,0,.1);padding-top:23px}@media(max-width:720px){main{padding:25px}.stage{grid-template-columns:1fr;gap:46px;padding:88px 0 62px}.stage.reverse .copy,.stage.reverse .clock{order:initial}h1{font-size:clamp(54px,15vw,88px)}.clock{min-height:220px;padding:28px}}
+</style>
+</head>
+<body>
+<main>
+<header><strong>will project</strong><span>Every day has its hour</span></header>
+<section class="stage $layout">
+<div class="copy"><div class="eyebrow">A simple place</div><h1>$title</h1><p>$subtitle</p></div>
+<div class="clock" aria-label="Local date and time"><span class="clock-label">Your local time</span><time id="clock-time" class="clock-time">--:--</time><time id="clock-date" class="clock-date"></time></div>
+</section>
+<footer><span>$SITE_DOMAIN</span><span>Made for the moment</span></footer>
+</main>
+<script>
+const timeElement=document.getElementById('clock-time');
+const dateElement=document.getElementById('clock-date');
+function updateClock(){const now=new Date();timeElement.textContent=new Intl.DateTimeFormat('en',{hour:'2-digit',minute:'2-digit',hour12:false}).format(now);dateElement.textContent=new Intl.DateTimeFormat('en',{weekday:'long',day:'numeric',month:'long',year:'numeric'}).format(now);};
+updateClock();
+setInterval(updateClock,1000);
+</script>
+</body>
+</html>
+EOF
+  chmod 644 "$SITE_DIR/index.html"
+  printf '%s\n' "$SITE_DOMAIN" > "$REMNA_DIR/selfsteal/domain"
+}
+
+start_http_site() {
+  cat > "$NGINX_CONF" <<EOF
+server {
+    listen 80;
+    server_name $SITE_DOMAIN;
+    location ^~ /.well-known/acme-challenge/ {
+        root $ACME_DIR;
+        default_type text/plain;
+    }
+    location / {
+        return 301 https://$SITE_DOMAIN\$request_uri;
+    }
+}
+EOF
+  nginx -t
+  systemctl enable --now nginx
+  systemctl reload nginx
+}
+
+finish_https_site() {
+  cat >> "$NGINX_CONF" <<EOF
+server {
+    listen 127.0.0.1:$SITE_PORT ssl http2;
+    server_name $SITE_DOMAIN;
+    ssl_certificate /etc/letsencrypt/live/$SITE_DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$SITE_DOMAIN/privkey.pem;
+    root $SITE_DIR;
+    index index.html;
+    location / {
+        try_files \$uri \$uri/ =404;
+    }
+}
+EOF
+  nginx -t
+  systemctl reload nginx
+}
+
 [[ $EUID -eq 0 ]] || die "Run as root"
+[[ "$SITE_PORT" =~ ^[1-9][0-9]*$ ]] && (( SITE_PORT >= 1024 && SITE_PORT <= 65535 )) || die "SELFSTEAL_PORT должен быть числом от 1024 до 65535"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "Docker не найден. Устанавливаю..."
@@ -44,19 +149,73 @@ fi
 
 docker compose version >/dev/null 2>&1 || die "docker compose not found"
 
-echo "=== WILLVPN Remnawave Node installer v5 ==="
+echo "=== will Remnawave Node installer v5 ==="
 
 SECRET_KEY="$(read_required 'SECRET_KEY: ')"
+
+ENABLE_SITE=0
+SITE_DOMAIN=""
+if ask_yes_no_default_yes "Настроить сайт для REALITY self-steal?"; then
+  ENABLE_SITE=1
+  SITE_DOMAIN="$(read_required 'Домен этой ноды (например, de1.willproject.cc): ')"
+  SITE_DOMAIN="$(printf '%s' "$SITE_DOMAIN" | tr '[:upper:]' '[:lower:]')"
+  validate_domain "$SITE_DOMAIN"
+fi
 
 ENABLE_HY2=0
 HY2_DOMAIN=""
 
 if ask_yes_no "Нужна Hysteria2?"; then
   ENABLE_HY2=1
-  HY2_DOMAIN="$(read_required 'Домен Hysteria2: ')"
+  if (( ENABLE_SITE )); then
+    HY2_DOMAIN="$SITE_DOMAIN"
+    echo "Hysteria2 использует тот же домен и сертификат: $HY2_DOMAIN"
+  else
+    HY2_DOMAIN="$(read_required 'Домен Hysteria2: ')"
+    HY2_DOMAIN="$(printf '%s' "$HY2_DOMAIN" | tr '[:upper:]' '[:lower:]')"
+    validate_domain "$HY2_DOMAIN"
+  fi
+fi
+
+if (( ENABLE_SITE || ENABLE_HY2 )); then
+  if ! command -v certbot >/dev/null || ! command -v dig >/dev/null || { (( ENABLE_SITE )) && ! command -v nginx >/dev/null; }; then
+    apt-get update
+    packages=(certbot dnsutils)
+    if (( ENABLE_SITE )); then packages+=(nginx); fi
+    DEBIAN_FRONTEND=noninteractive apt-get install -y "${packages[@]}"
+  fi
+fi
+
+if (( ENABLE_SITE )); then
+  existing_domain=""
+  if [[ -f "$REMNA_DIR/selfsteal/domain" ]]; then
+    existing_domain="$(cat "$REMNA_DIR/selfsteal/domain")"
+  fi
+  [[ -z "$existing_domain" || "$existing_domain" == "$SITE_DOMAIN" ]] || die "Установлен другой домен self-steal: $existing_domain"
+  site_ips="$(dig +short A "$SITE_DOMAIN" | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/')"
+  [[ -n "$site_ips" ]] || die "Нет A-записи для $SITE_DOMAIN"
+  public_ip="${SELFSTEAL_PUBLIC_IP:-$(curl -4fsS --noproxy '*' --max-time 8 https://api.ipify.org)}"
+  [[ "$public_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Не удалось определить публичный IPv4 ноды"
+  printf '%s\n' "$site_ips" | grep -Fxq "$public_ip" || die "A-запись $SITE_DOMAIN не указывает на IPv4 этой ноды ($public_ip). Нужна прямая DNS-запись без проксирования."
 fi
 
 mkdir -p "$REMNA_DIR"
+
+if (( ENABLE_SITE )); then
+  install -d -m 755 "$REMNA_DIR/selfsteal" "$SITE_DIR" "$ACME_DIR"
+  write_site
+  start_http_site
+  if [[ -f "/etc/letsencrypt/live/$SITE_DOMAIN/fullchain.pem" ]]; then
+    if [[ ! -f "/etc/letsencrypt/renewal/$SITE_DOMAIN.conf" ]] || ! grep -Eq '^authenticator[[:space:]]*=[[:space:]]*webroot$' "/etc/letsencrypt/renewal/$SITE_DOMAIN.conf"; then
+      certbot renew --cert-name "$SITE_DOMAIN" --webroot --webroot-path "$ACME_DIR" --dry-run
+      certbot renew --cert-name "$SITE_DOMAIN" --webroot --webroot-path "$ACME_DIR" --force-renewal
+    fi
+  else
+    certbot certonly --webroot -w "$ACME_DIR" -d "$SITE_DOMAIN" --cert-name "$SITE_DOMAIN" --non-interactive --agree-tos -m "$CERT_EMAIL"
+  fi
+  finish_https_site
+  curl -fsS --noproxy '*' --max-time 8 --resolve "$SITE_DOMAIN:$SITE_PORT:127.0.0.1" "https://$SITE_DOMAIN:$SITE_PORT/" >/dev/null || die "Локальная HTTPS-проверка self-steal не прошла"
+fi
 
 umask 077
 cat > "$REMNA_DIR/.env" <<EOF
@@ -84,14 +243,10 @@ services:
 EOF
 
 if (( ENABLE_HY2 )); then
-  if ! command -v certbot >/dev/null || ! command -v dig >/dev/null; then
-    apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y certbot dnsutils
+  if (( ! ENABLE_SITE )); then
+    RESOLVED_IP="$(dig +short A "$HY2_DOMAIN" | tail -n1)"
+    [[ -n "$RESOLVED_IP" ]] || die "$HY2_DOMAIN does not resolve"
   fi
-
-  RESOLVED_IP="$(dig +short A "$HY2_DOMAIN" | tail -n1)"
-  [[ -n "$RESOLVED_IP" ]] || die "$HY2_DOMAIN does not resolve"
-
   if [[ ! -f "/etc/letsencrypt/live/$HY2_DOMAIN/fullchain.pem" ]]; then
     certbot certonly --standalone \
       -d "$HY2_DOMAIN" \
@@ -104,13 +259,25 @@ if (( ENABLE_HY2 )); then
     volumes:
       - /etc/letsencrypt:/etc/letsencrypt:ro
 EOF
-
-  mkdir -p /etc/letsencrypt/renewal-hooks/deploy
-  cat > /etc/letsencrypt/renewal-hooks/deploy/restart-remnanode.sh <<'EOF'
-#!/bin/sh
-docker restart remnanode
+  if (( ENABLE_SITE )); then
+    cat >> "$REMNA_DIR/docker-compose.yml" <<EOF
+      - $SITE_DIR:$SITE_DIR:ro
 EOF
-  chmod +x /etc/letsencrypt/renewal-hooks/deploy/restart-remnanode.sh
+  fi
+fi
+
+if (( ENABLE_SITE || ENABLE_HY2 )); then
+  mkdir -p /etc/letsencrypt/renewal-hooks/deploy
+  cat > "$RENEW_HOOK" <<EOF
+#!/bin/sh
+EOF
+  if (( ENABLE_SITE )); then
+    printf '%s\n' 'systemctl reload nginx' >> "$RENEW_HOOK"
+  fi
+  if (( ENABLE_HY2 )); then
+    printf '%s\n' 'docker restart remnanode' >> "$RENEW_HOOK"
+  fi
+  chmod +x "$RENEW_HOOK"
 fi
 
 cd "$REMNA_DIR"
@@ -119,3 +286,12 @@ docker compose up -d
 
 echo "=== DONE ==="
 docker ps --filter name=remnanode
+if (( ENABLE_SITE )); then
+  echo "После настройки REALITY сайт будет доступен по адресу: https://$SITE_DOMAIN/"
+  echo "REALITY: target=127.0.0.1:$SITE_PORT, serverNames=[\"$SITE_DOMAIN\"], xver=0"
+  echo "В Remnawave укажите этот домен в SNI клиентского профиля и target в конфигурации REALITY."
+  if (( ENABLE_HY2 )); then
+    echo "Hysteria2: SNI=$SITE_DOMAIN, cert=/etc/letsencrypt/live/$SITE_DOMAIN/fullchain.pem, key=/etc/letsencrypt/live/$SITE_DOMAIN/privkey.pem"
+    echo "Для ответа на проверки QUIC задайте Hysteria2 masquerade: {\"type\":\"file\",\"dir\":\"$SITE_DIR\"}"
+  fi
+fi
