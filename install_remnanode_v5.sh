@@ -5,6 +5,8 @@ set -Eeuo pipefail
 
 REMNA_DIR="/opt/remnanode"
 NODE_PORT="2222"
+PANEL_DOMAIN="panel.willvpn.space"
+PANEL_SOURCE_IP="${PANEL_SOURCE_IP:-}"
 CERT_EMAIL="ilyamaksimovmail@gmail.com"
 SITE_PORT="${SELFSTEAL_PORT:-9444}"
 SITE_DIR="$REMNA_DIR/selfsteal/site"
@@ -68,6 +70,94 @@ open_http_firewall() {
   if (( ! configured )); then
     echo "UFW/firewalld не активны; проверьте внешний firewall провайдера для TCP 80"
   fi
+}
+
+valid_ipv4() {
+  local ip="$1" part
+  [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
+  IFS='.' read -r -a parts <<< "$ip"
+  for part in "${parts[@]}"; do
+    [[ ${#part} -le 3 ]] && (( 10#$part <= 255 )) || return 1
+  done
+}
+
+configure_panel_firewall() {
+  local panel_ip="$PANEL_SOURCE_IP" resolved_ips
+  if [[ -z "$panel_ip" ]]; then
+    command -v getent >/dev/null 2>&1 || die "getent не найден: нельзя определить IP панели"
+    resolved_ips="$(getent ahostsv4 "$PANEL_DOMAIN" 2>/dev/null | awk '{print $1}' | sort -u)" || die "Не удалось определить IP панели"
+    [[ -n "$resolved_ips" ]] || die "Нет A-записи для $PANEL_DOMAIN"
+    [[ "$resolved_ips" != *$'\n'* ]] || die "У $PANEL_DOMAIN несколько A-адресов: укажите PANEL_SOURCE_IP"
+    panel_ip="$resolved_ips"
+  fi
+  valid_ipv4 "$panel_ip" || die "Некорректный IP панели: $panel_ip"
+
+  if ! command -v nft >/dev/null 2>&1; then
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y nftables
+  fi
+  mkdir -p /etc/remnanode /usr/local/sbin /etc/systemd/system/docker.service.d
+  printf 'NODE_PORT=%s\nPANEL_IP=%s\n' "$NODE_PORT" "$panel_ip" > /etc/remnanode/panel-firewall.conf
+  chmod 600 /etc/remnanode/panel-firewall.conf
+
+  cat > /usr/local/sbin/remnanode-panel-firewall <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+source /etc/remnanode/panel-firewall.conf
+
+{
+  if nft list table inet remnanode_panel >/dev/null 2>&1; then
+    echo 'flush chain inet remnanode_panel input'
+  else
+    echo 'add table inet remnanode_panel'
+    echo 'add chain inet remnanode_panel input { type filter hook input priority -150; policy accept; }'
+  fi
+  echo 'add rule inet remnanode_panel input iifname "lo" accept'
+  printf 'add rule inet remnanode_panel input tcp dport %s ip saddr %s accept\n' "$NODE_PORT" "$PANEL_IP"
+  printf 'add rule inet remnanode_panel input tcp dport %s drop\n' "$NODE_PORT"
+} | nft -f -
+
+if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; then
+  ufw allow from "$PANEL_IP" to any port "$NODE_PORT" proto tcp >/dev/null
+fi
+if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
+  zones="$(firewall-cmd --get-active-zones | awk '/^[^[:space:]]/ {print $1}')"
+  [[ -n "$zones" ]] || zones="$(firewall-cmd --get-default-zone)"
+  for zone in $zones; do
+    rule="rule family=\"ipv4\" source address=\"$PANEL_IP\" port port=\"$NODE_PORT\" protocol=\"tcp\" accept"
+    if ! firewall-cmd --zone="$zone" --query-rich-rule="$rule" >/dev/null; then
+      firewall-cmd --zone="$zone" --add-rich-rule="$rule" >/dev/null
+    fi
+    if ! firewall-cmd --permanent --zone="$zone" --query-rich-rule="$rule" >/dev/null; then
+      firewall-cmd --permanent --zone="$zone" --add-rich-rule="$rule" >/dev/null
+    fi
+  done
+fi
+echo "Remnanode TCP $NODE_PORT доступен только с IP панели: $PANEL_IP"
+EOF
+  chmod 755 /usr/local/sbin/remnanode-panel-firewall
+
+  cat > /etc/systemd/system/remnanode-panel-firewall.service <<'EOF'
+[Unit]
+Description=Restrict Remnanode management port to the panel
+After=nftables.service ufw.service firewalld.service
+Before=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/remnanode-panel-firewall
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  cat > /etc/systemd/system/docker.service.d/remnanode-panel-firewall.conf <<'EOF'
+[Unit]
+Requires=remnanode-panel-firewall.service
+After=remnanode-panel-firewall.service
+EOF
+  systemctl daemon-reload
+  systemctl enable remnanode-panel-firewall.service >/dev/null
+  systemctl start remnanode-panel-firewall.service
 }
 
 write_site() {
@@ -260,6 +350,8 @@ services:
     env_file:
       - .env
 EOF
+
+configure_panel_firewall
 
 if (( ENABLE_HY2 )); then
   if (( ! ENABLE_SITE )); then
