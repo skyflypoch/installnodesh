@@ -52,6 +52,24 @@ validate_domain() {
   done
 }
 
+open_http_firewall() {
+  local configured=0
+  if command -v ufw >/dev/null 2>&1; then
+    ufw allow 80/tcp >/dev/null || die "Не удалось разрешить TCP 80 в UFW"
+    echo "UFW: TCP 80 разрешён"
+    configured=1
+  fi
+  if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
+    firewall-cmd --permanent --add-port=80/tcp >/dev/null || die "Не удалось разрешить TCP 80 в firewalld"
+    firewall-cmd --reload >/dev/null || die "Не удалось применить правило firewalld для TCP 80"
+    echo "firewalld: TCP 80 разрешён"
+    configured=1
+  fi
+  if (( ! configured )); then
+    echo "UFW/firewalld не активны; проверьте внешний firewall провайдера для TCP 80"
+  fi
+}
+
 write_site() {
   local variant title subtitle accent background surface layout
   variant=$(( $(printf '%s' "$SITE_DOMAIN" | cksum | awk '{print $1}') % 6 ))
@@ -184,6 +202,7 @@ if (( ENABLE_SITE || ENABLE_HY2 )); then
     if (( ENABLE_SITE )); then packages+=(nginx); fi
     DEBIAN_FRONTEND=noninteractive apt-get install -y "${packages[@]}"
   fi
+  open_http_firewall
 fi
 
 if (( ENABLE_SITE )); then
