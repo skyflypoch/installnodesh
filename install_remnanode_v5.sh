@@ -374,6 +374,16 @@ EOF
 }
 
 [[ $EUID -eq 0 ]] || die "Run as root"
+if [[ "${1:-}" == "--refresh-site" ]]; then
+  [[ $# -eq 1 ]] || die "Использование: $0 --refresh-site"
+  [[ -f "$REMNA_DIR/selfsteal/domain" && -d "$SITE_DIR" && -f "$NGINX_CONF" ]] || die "Сайт self-steal ещё не установлен"
+  SITE_DOMAIN="$(cat "$REMNA_DIR/selfsteal/domain")"
+  validate_domain "$SITE_DOMAIN"
+  write_site
+  echo "Обновлена страница https://$SITE_DOMAIN/"
+  exit 0
+fi
+[[ $# -eq 0 ]] || die "Неизвестный аргумент: $1"
 [[ "$SITE_PORT" =~ ^[1-9][0-9]*$ ]] && (( SITE_PORT >= 1024 && SITE_PORT <= 65535 )) || die "SELFSTEAL_PORT должен быть числом от 1024 до 65535"
 if [[ -z "$NODE_PORT" && -f "$REMNA_DIR/.env" ]]; then
   NODE_PORT="$(sed -n 's/^NODE_PORT=//p' "$REMNA_DIR/.env" | tail -n1)"
