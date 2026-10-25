@@ -170,47 +170,150 @@ EOF
 }
 
 write_site() {
-  local variant title subtitle accent background surface layout
+  local variant accent background ink muted zone other_zone
   variant=$(( $(printf '%s' "$SITE_DOMAIN" | cksum | awk '{print $1}') % 6 ))
   case "$variant" in
-    0) title="The daily page"; subtitle="A little room for the present moment."; accent="#c36e51"; background="#f5f0e8"; surface="#e9dfd1"; layout="normal" ;;
-    1) title="A small moment"; subtitle="Take a second. The rest can wait."; accent="#527d6b"; background="#edf2eb"; surface="#dce8dc"; layout="reverse" ;;
-    2) title="Day by day"; subtitle="One quiet page for today."; accent="#6571a2"; background="#f0f0f7"; surface="#e0e2ef"; layout="normal" ;;
-    3) title="The hours"; subtitle="Time for the things that matter."; accent="#a87554"; background="#f5eee9"; surface="#eadcd2"; layout="reverse" ;;
-    4) title="Here and now"; subtitle="A clear view of this moment."; accent="#417b87"; background="#edf3f3"; surface="#dce9e9"; layout="normal" ;;
-    5) title="Today, simply"; subtitle="A moment to begin again."; accent="#777254"; background="#f3f1e8"; surface="#e6e2d2"; layout="reverse" ;;
+    0) accent="#245f59"; background="#eef3f1"; ink="#183531"; muted="#59736d"; zone="Europe/Berlin"; other_zone="America/New_York" ;;
+    1) accent="#345d86"; background="#eef2f7"; ink="#1d3349"; muted="#61778b"; zone="Europe/Helsinki"; other_zone="Europe/London" ;;
+    2) accent="#6c6030"; background="#f3f3ec"; ink="#373627"; muted="#77755e"; zone="Europe/Amsterdam"; other_zone="Asia/Tokyo" ;;
+    3) accent="#87554b"; background="#f5f0ee"; ink="#402d2b"; muted="#866d68"; zone="Europe/Tallinn"; other_zone="America/Toronto" ;;
+    4) accent="#28677c"; background="#edf3f5"; ink="#1e3740"; muted="#5e7982"; zone="Europe/Warsaw"; other_zone="Asia/Singapore" ;;
+    5) accent="#5e5883"; background="#f2f1f6"; ink="#333047"; muted="#747085"; zone="Europe/Vienna"; other_zone="America/Los_Angeles" ;;
   esac
-  cat > "$SITE_DIR/index.html" <<EOF
+  case "$SITE_DOMAIN" in
+    de.*|de-*) zone="Europe/Berlin"; other_zone="Europe/London" ;;
+    nl.*|nl-*) zone="Europe/Amsterdam"; other_zone="America/New_York" ;;
+    fi.*|fi-*) zone="Europe/Helsinki"; other_zone="Europe/London" ;;
+    ee.*|ee-*) zone="Europe/Tallinn"; other_zone="Europe/London" ;;
+    pl.*|pl-*) zone="Europe/Warsaw"; other_zone="Asia/Tokyo" ;;
+    hk.*|hk-*) zone="Asia/Hong_Kong"; other_zone="Europe/London" ;;
+    ae.*|ae-*) zone="Asia/Dubai"; other_zone="Europe/London" ;;
+  esac
+  cat > "$SITE_DIR/index.html" <<'HTML'
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="$background">
-<title>$title — will project</title>
+<meta name="theme-color" content="__BACKGROUND__">
+<meta name="description" content="Compare local times between cities and plan across time zones.">
+<title>Clockline — time zone converter</title>
 <style>
-:root{color-scheme:light;--accent:$accent;--background:$background;--surface:$surface}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:var(--background);color:#292b28;font-family:Arial,Helvetica,sans-serif}main{max-width:1100px;min-height:100vh;margin:auto;padding:36px 42px;display:flex;flex-direction:column}header,footer{display:flex;align-items:center;justify-content:space-between;font-size:13px;letter-spacing:.04em}header strong{font-size:17px;letter-spacing:-.04em}header span,footer{color:#777c75}.stage{display:grid;grid-template-columns:1.1fr .9fr;gap:7vw;align-items:center;flex:1;padding:72px 0}.stage.reverse .copy{order:2}.stage.reverse .clock{order:1}.copy{max-width:610px}.eyebrow,.clock-label{color:var(--accent);font-size:13px;font-weight:700;letter-spacing:.13em;text-transform:uppercase}h1{font-size:clamp(54px,8vw,108px);line-height:.98;letter-spacing:-.065em;font-weight:500;margin:23px 0 30px}p{font-size:18px;line-height:1.6;color:#656b65;margin:0}.clock{border-radius:26px;background:var(--surface);padding:36px;min-height:260px;display:flex;flex-direction:column;justify-content:space-between}.clock-time{font-size:clamp(52px,6vw,80px);line-height:1;letter-spacing:-.07em;font-variant-numeric:tabular-nums}.clock-date{color:#60665f;font-size:15px}footer{border-top:1px solid rgba(0,0,0,.1);padding-top:23px}@media(max-width:720px){main{padding:25px}.stage{grid-template-columns:1fr;gap:46px;padding:88px 0 62px}.stage.reverse .copy,.stage.reverse .clock{order:initial}h1{font-size:clamp(54px,15vw,88px)}.clock{min-height:220px;padding:28px}}
+:root{color-scheme:light;--accent:__ACCENT__;--background:__BACKGROUND__;--ink:__INK__;--muted:__MUTED__}
+*{box-sizing:border-box}
+html{font-family:"Avenir Next","Segoe UI",Arial,sans-serif}
+body{margin:0;min-height:100vh;background:var(--background);color:var(--ink)}
+button,input,select{font:inherit}
+button{cursor:pointer}
+.page{max-width:1120px;min-height:100vh;margin:auto;padding:0 34px;display:flex;flex-direction:column}
+.topbar{min-height:84px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(28,54,50,.15)}
+.brand{display:inline-flex;align-items:center;gap:10px;color:var(--ink);text-decoration:none;font-size:25px;font-weight:750;letter-spacing:-.07em}
+.brand-mark{width:12px;height:12px;border:3px solid var(--accent);border-radius:50%}
+.topbar-note{font-size:14px;color:var(--muted)}
+main{flex:1}
+.intro{padding:76px 0 43px;max-width:680px}
+.intro h1{font-size:clamp(43px,6.2vw,76px);letter-spacing:-.065em;line-height:1.03;font-weight:650;margin:0 0 20px}
+.intro p{font-size:18px;line-height:1.55;color:var(--muted);margin:0;max-width:540px}
+.workspace{display:grid;grid-template-columns:1.06fr .94fr;gap:18px}
+.planner,.result{border-radius:22px;min-height:420px}
+.planner{background:#fff;padding:33px;border:1px solid rgba(28,54,50,.12)}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:15px}
+.field{display:flex;flex-direction:column;gap:9px}
+.field label{font-size:14px;font-weight:650}
+.field select,.field input{width:100%;min-width:0;height:52px;border:1px solid #c9d4d0;border-radius:11px;background:#fff;color:var(--ink);padding:0 14px;font-size:16px}
+.field select:focus-visible,.field input:focus-visible,.button:focus-visible,.result-bottom button:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+.time-field{margin-top:27px}
+.actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:27px}
+.button{min-height:46px;padding:0 18px;border-radius:10px;border:1px solid #c9d4d0;background:#fff;color:var(--ink);font-weight:650}
+.button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.button:hover{filter:brightness(.96)}
+.result{background:var(--ink);color:#fff;padding:38px;display:flex;flex-direction:column;justify-content:space-between}
+.result-label{font-size:15px;color:#c8d8d3}
+.result-time{display:block;font-size:clamp(64px,7vw,101px);line-height:1;letter-spacing:-.075em;font-weight:600;font-variant-numeric:tabular-nums;margin:30px 0 13px}
+.result-date{font-size:18px;line-height:1.45;color:#e0eae6;margin:0}
+.result-bottom{display:flex;align-items:center;justify-content:space-between;gap:18px;border-top:1px solid rgba(255,255,255,.25);padding-top:24px}
+.result-bottom span{font-size:14px;color:#c8d8d3}
+.result-bottom button{background:transparent;border:1px solid rgba(255,255,255,.48);border-radius:9px;color:#fff;padding:10px 14px;font-weight:600}
+.result-bottom button:hover{background:rgba(255,255,255,.1)}
+.live{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:23px 0 68px}
+.live-item{display:flex;align-items:baseline;justify-content:space-between;gap:20px;padding:17px 4px;border-bottom:1px solid rgba(28,54,50,.17)}
+.live-item span{color:var(--muted);font-size:14px}
+.live-item strong{font-size:21px;font-variant-numeric:tabular-nums;font-weight:650}
+.status{min-height:20px;font-size:14px;color:var(--muted);margin:18px 0 0}
+.status.error{color:#a13636}
+.footer{border-top:1px solid rgba(28,54,50,.15);padding:24px 0 32px;font-size:13px;color:var(--muted);display:flex;justify-content:space-between;gap:18px}
+@media(max-width:760px){.page{padding:0 20px}.topbar{min-height:72px}.topbar-note{display:none}.intro{padding:54px 0 32px}.intro p{font-size:16px}.workspace{grid-template-columns:1fr}.planner,.result{min-height:0}.planner{padding:24px}.result{padding:28px;min-height:280px}.result-time{font-size:72px;margin:24px 0 12px}.live{margin:13px 0 44px}.footer{flex-direction:column}}
+@media(max-width:480px){.field-row{grid-template-columns:1fr}.result-time{font-size:64px}.live{grid-template-columns:1fr;gap:0}.actions .button{flex:1}.result-bottom{align-items:flex-start;flex-direction:column}}
 </style>
 </head>
 <body>
+<div class="page">
+<header class="topbar"><a class="brand" href="/">clockline<span class="brand-mark" aria-hidden="true"></span></a><span class="topbar-note">Time zone converter</span></header>
 <main>
-<header><strong>will project</strong><span>Every day has its hour</span></header>
-<section class="stage $layout">
-<div class="copy"><div class="eyebrow">A simple place</div><h1>$title</h1><p>$subtitle</p></div>
-<div class="clock" aria-label="Local date and time"><span class="clock-label">Your local time</span><time id="clock-time" class="clock-time">--:--</time><time id="clock-date" class="clock-date"></time></div>
+<section class="intro"><h1>Find the right hour.</h1><p>Compare local times before you call, book or travel. Choose a time in one city to see the same moment in another.</p></section>
+<section class="workspace" aria-label="Time zone converter">
+<div class="planner">
+<div class="field-row"><div class="field"><label for="from-zone">From</label><select id="from-zone"></select></div><div class="field"><label for="to-zone">To</label><select id="to-zone"></select></div></div>
+<div class="field time-field"><label for="from-time">Date and time in the first city</label><input id="from-time" type="datetime-local" required></div>
+<div class="actions"><button class="button primary" id="now-button" type="button">Use current time</button><button class="button" id="swap-button" type="button">Swap cities</button></div>
+<p class="status" id="status" role="status" aria-live="polite"></p>
+</div>
+<div class="result" aria-live="polite"><div><span class="result-label" id="result-label">In the second city</span><strong class="result-time" id="result-time">--:--</strong><p class="result-date" id="result-date">Choose a date and time</p></div><div class="result-bottom"><span>The same moment, in local time</span><button id="copy-button" type="button">Copy result</button></div></div>
 </section>
-<footer><span>$SITE_DOMAIN</span><span>Made for the moment</span></footer>
+<section class="live" aria-label="Current local times"><div class="live-item"><span id="live-from-label"></span><strong id="live-from-time">--:--</strong></div><div class="live-item"><span id="live-to-label"></span><strong id="live-to-time">--:--</strong></div></section>
 </main>
+<footer class="footer"><span>Time zones and daylight saving changes are applied automatically.</span><span>__DOMAIN__</span></footer>
+</div>
 <script>
-const timeElement=document.getElementById('clock-time');
-const dateElement=document.getElementById('clock-date');
-function updateClock(){const now=new Date();timeElement.textContent=new Intl.DateTimeFormat('en',{hour:'2-digit',minute:'2-digit',hour12:false}).format(now);dateElement.textContent=new Intl.DateTimeFormat('en',{weekday:'long',day:'numeric',month:'long',year:'numeric'}).format(now);};
-updateClock();
-setInterval(updateClock,1000);
+const places=[['Europe/Berlin','Berlin'],['Europe/London','London'],['Europe/Amsterdam','Amsterdam'],['Europe/Helsinki','Helsinki'],['Europe/Tallinn','Tallinn'],['Europe/Warsaw','Warsaw'],['Europe/Vienna','Vienna'],['Asia/Dubai','Dubai'],['Asia/Hong_Kong','Hong Kong'],['Asia/Singapore','Singapore'],['Asia/Tokyo','Tokyo'],['America/New_York','New York'],['America/Toronto','Toronto'],['America/Los_Angeles','Los Angeles']];
+const placeNames=Object.fromEntries(places);
+const fromZone=document.getElementById('from-zone');
+const toZone=document.getElementById('to-zone');
+const fromTime=document.getElementById('from-time');
+const resultLabel=document.getElementById('result-label');
+const resultTime=document.getElementById('result-time');
+const resultDate=document.getElementById('result-date');
+const status=document.getElementById('status');
+const liveFromLabel=document.getElementById('live-from-label');
+const liveToLabel=document.getElementById('live-to-label');
+const liveFromTime=document.getElementById('live-from-time');
+const liveToTime=document.getElementById('live-to-time');
+for(const [zone,name] of places){fromZone.add(new Option(name,zone));toZone.add(new Option(name,zone));};
+function stored(key,fallback){try{const value=localStorage.getItem(key);return placeNames[value]?value:fallback;}catch{return fallback;}};
+function remember(){try{localStorage.setItem('clockline-from',fromZone.value);localStorage.setItem('clockline-to',toZone.value);}catch{}};
+fromZone.value=stored('clockline-from','__FROM_ZONE__');
+toZone.value=stored('clockline-to','__TO_ZONE__');
+let previousFromZone=fromZone.value;
+function pieces(date,zone){const values={};for(const part of new Intl.DateTimeFormat('en-GB',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date)){if(part.type!=='literal'){values[part.type]=Number(part.value);}};return values;};
+function inputValue(date,zone){const p=pieces(date,zone);return String(p.year).padStart(4,'0')+'-'+String(p.month).padStart(2,'0')+'-'+String(p.day).padStart(2,'0')+'T'+String(p.hour).padStart(2,'0')+':'+String(p.minute).padStart(2,'0');};
+function instantFromWall(value,zone){const match=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);if(!match){return null;};const target=Date.UTC(Number(match[1]),Number(match[2])-1,Number(match[3]),Number(match[4]),Number(match[5]));let instant=target;for(let attempt=0;attempt<4;attempt++){const p=pieces(new Date(instant),zone);const shown=Date.UTC(p.year,p.month-1,p.day,p.hour,p.minute);const shift=target-shown;instant+=shift;if(shift===0){break;}};const result=new Date(instant);return inputValue(result,zone)===value?result:null;};
+function clock(date,zone){return new Intl.DateTimeFormat('en-GB',{timeZone:zone,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(date);};
+function calendar(date,zone){return new Intl.DateTimeFormat('en-GB',{timeZone:zone,weekday:'long',day:'numeric',month:'long',year:'numeric'}).format(date);};
+function renderLive(){const now=new Date();liveFromLabel.textContent='Right now in '+placeNames[fromZone.value];liveToLabel.textContent='Right now in '+placeNames[toZone.value];liveFromTime.textContent=clock(now,fromZone.value);liveToTime.textContent=clock(now,toZone.value);};
+function render(){resultLabel.textContent='In '+placeNames[toZone.value];const date=instantFromWall(fromTime.value,fromZone.value);if(!date){resultTime.textContent='--:--';resultDate.textContent='Choose a valid local date and time';status.textContent='This local time may not exist because the clocks changed. Try another time.';status.classList.add('error');renderLive();return;};resultTime.textContent=clock(date,toZone.value);resultDate.textContent=calendar(date,toZone.value);status.textContent='';status.classList.remove('error');renderLive();};
+fromTime.value=inputValue(new Date(),fromZone.value);
+fromZone.addEventListener('change',()=>{const date=instantFromWall(fromTime.value,previousFromZone);previousFromZone=fromZone.value;if(date){fromTime.value=inputValue(date,fromZone.value);}remember();render();});
+toZone.addEventListener('change',()=>{remember();render();});
+fromTime.addEventListener('input',render);
+document.getElementById('now-button').addEventListener('click',()=>{fromTime.value=inputValue(new Date(),fromZone.value);render();});
+document.getElementById('swap-button').addEventListener('click',()=>{const date=instantFromWall(fromTime.value,fromZone.value);const oldFrom=fromZone.value;fromZone.value=toZone.value;toZone.value=oldFrom;previousFromZone=fromZone.value;if(date){fromTime.value=inputValue(date,fromZone.value);}remember();render();});
+document.getElementById('copy-button').addEventListener('click',async()=>{const date=instantFromWall(fromTime.value,fromZone.value);if(!date){render();return;};const value=clock(date,toZone.value)+' '+calendar(date,toZone.value)+' in '+placeNames[toZone.value];try{await navigator.clipboard.writeText(value);status.textContent='Copied the converted time.';status.classList.remove('error');}catch{status.textContent='Copy is unavailable in this browser.';status.classList.add('error');}});
+render();
+setInterval(renderLive,30000);
 </script>
 </body>
 </html>
-EOF
+HTML
+  sed \
+    -e "s|__ACCENT__|$accent|g" \
+    -e "s|__BACKGROUND__|$background|g" \
+    -e "s|__INK__|$ink|g" \
+    -e "s|__MUTED__|$muted|g" \
+    -e "s|__FROM_ZONE__|$zone|g" \
+    -e "s|__TO_ZONE__|$other_zone|g" \
+    -e "s|__DOMAIN__|$SITE_DOMAIN|g" \
+    "$SITE_DIR/index.html" > "$SITE_DIR/index.next.html"
+  mv "$SITE_DIR/index.next.html" "$SITE_DIR/index.html"
   chmod 644 "$SITE_DIR/index.html"
   printf '%s\n' "$SITE_DOMAIN" > "$REMNA_DIR/selfsteal/domain"
 }
