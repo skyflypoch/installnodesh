@@ -4,7 +4,7 @@ set -Eeuo pipefail
 # will Remnanode installer v5
 
 REMNA_DIR="/opt/remnanode"
-NODE_PORT="2222"
+NODE_PORT="${NODE_PORT:-}"
 PANEL_DOMAIN="panel.willvpn.space"
 PANEL_SOURCE_IP="${PANEL_SOURCE_IP:-}"
 CERT_EMAIL="ilyamaksimovmail@gmail.com"
@@ -12,6 +12,7 @@ SITE_PORT="${SELFSTEAL_PORT:-9444}"
 SITE_DIR="$REMNA_DIR/selfsteal/site"
 ACME_DIR="$REMNA_DIR/selfsteal/acme"
 NGINX_CONF="/etc/nginx/conf.d/remnanode-selfsteal.conf"
+HY2_ACME_CONF="/etc/nginx/conf.d/remnanode-hysteria-acme.conf"
 RENEW_HOOK="/etc/letsencrypt/renewal-hooks/deploy/restart-remnanode.sh"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -233,6 +234,24 @@ EOF
   systemctl reload nginx
 }
 
+start_hy2_acme() {
+  cat > "$HY2_ACME_CONF" <<EOF
+server {
+    listen 80;
+    server_name $HY2_DOMAIN;
+    location ^~ /.well-known/acme-challenge/ {
+        root $ACME_DIR;
+        default_type text/plain;
+    }
+    location / {
+        return 404;
+    }
+}
+EOF
+  nginx -t
+  systemctl reload nginx
+}
+
 finish_https_site() {
   cat >> "$NGINX_CONF" <<EOF
 server {
@@ -253,6 +272,11 @@ EOF
 
 [[ $EUID -eq 0 ]] || die "Run as root"
 [[ "$SITE_PORT" =~ ^[1-9][0-9]*$ ]] && (( SITE_PORT >= 1024 && SITE_PORT <= 65535 )) || die "SELFSTEAL_PORT должен быть числом от 1024 до 65535"
+if [[ -z "$NODE_PORT" && -f "$REMNA_DIR/.env" ]]; then
+  NODE_PORT="$(sed -n 's/^NODE_PORT=//p' "$REMNA_DIR/.env" | tail -n1)"
+fi
+NODE_PORT="${NODE_PORT:-2222}"
+[[ "$NODE_PORT" =~ ^[1-9][0-9]*$ ]] && (( NODE_PORT <= 65535 )) || die "Некорректный NODE_PORT: $NODE_PORT"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "Docker не найден. Устанавливаю..."
@@ -267,7 +291,13 @@ docker compose version >/dev/null 2>&1 || die "docker compose not found"
 
 echo "=== will Remnawave Node installer v5 ==="
 
-SECRET_KEY="$(read_required 'SECRET_KEY: ')"
+SECRET_KEY="${SECRET_KEY:-}"
+if [[ -z "$SECRET_KEY" && -f "$REMNA_DIR/.env" ]]; then
+  SECRET_KEY="$(sed -n 's/^SECRET_KEY=//p' "$REMNA_DIR/.env" | tail -n1)"
+fi
+if [[ -z "$SECRET_KEY" ]]; then
+  SECRET_KEY="$(read_required 'SECRET_KEY: ')"
+fi
 
 ENABLE_SITE=0
 SITE_DOMAIN=""
@@ -283,14 +313,10 @@ HY2_DOMAIN=""
 
 if ask_yes_no "Нужна Hysteria2?"; then
   ENABLE_HY2=1
-  if (( ENABLE_SITE )); then
-    HY2_DOMAIN="$SITE_DOMAIN"
-    echo "Hysteria2 использует тот же домен и сертификат: $HY2_DOMAIN"
-  else
-    HY2_DOMAIN="$(read_required 'Домен Hysteria2: ')"
-    HY2_DOMAIN="$(printf '%s' "$HY2_DOMAIN" | tr '[:upper:]' '[:lower:]')"
-    validate_domain "$HY2_DOMAIN"
-  fi
+  HY2_DOMAIN="$(read_required 'Домен Hysteria2: ')"
+  HY2_DOMAIN="$(printf '%s' "$HY2_DOMAIN" | tr '[:upper:]' '[:lower:]')"
+  validate_domain "$HY2_DOMAIN"
+  [[ "$HY2_DOMAIN" != "$SITE_DOMAIN" ]] || die "Домен Hysteria2 должен отличаться от домена сайта REALITY"
 fi
 
 configure_public_firewall
@@ -317,12 +343,20 @@ if (( ENABLE_SITE )); then
   printf '%s\n' "$site_ips" | grep -Fxq "$public_ip" || die "A-запись $SITE_DOMAIN не указывает на IPv4 этой ноды ($public_ip). Нужна прямая DNS-запись без проксирования."
 fi
 
+if (( ENABLE_HY2 )); then
+  hy2_ips="$(dig +short A "$HY2_DOMAIN" | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/')"
+  [[ -n "$hy2_ips" ]] || die "Нет A-записи для $HY2_DOMAIN"
+  public_ip="${public_ip:-${SELFSTEAL_PUBLIC_IP:-$(curl -4fsS --noproxy '*' --max-time 8 https://api.ipify.org)}}"
+  printf '%s\n' "$hy2_ips" | grep -Fxq "$public_ip" || die "A-запись $HY2_DOMAIN не указывает на IPv4 этой ноды ($public_ip). Нужна прямая DNS-запись без проксирования."
+fi
+
 mkdir -p "$REMNA_DIR"
 
 if (( ENABLE_SITE )); then
   install -d -m 755 "$REMNA_DIR/selfsteal" "$SITE_DIR" "$ACME_DIR"
   write_site
   start_http_site
+  if (( ENABLE_HY2 )); then start_hy2_acme; fi
   if [[ -f "/etc/letsencrypt/live/$SITE_DOMAIN/fullchain.pem" ]]; then
     if [[ ! -f "/etc/letsencrypt/renewal/$SITE_DOMAIN.conf" ]] || ! grep -Eq '^authenticator[[:space:]]*=[[:space:]]*webroot$' "/etc/letsencrypt/renewal/$SITE_DOMAIN.conf"; then
       certbot renew --cert-name "$SITE_DOMAIN" --webroot --webroot-path "$ACME_DIR" --dry-run
@@ -360,41 +394,34 @@ services:
       - .env
 EOF
 
-configure_panel_firewall
-
-if (( ENABLE_HY2 )); then
-  if (( ! ENABLE_SITE )); then
-    RESOLVED_IP="$(dig +short A "$HY2_DOMAIN" | tail -n1)"
-    [[ -n "$RESOLVED_IP" ]] || die "$HY2_DOMAIN does not resolve"
-  fi
-  if [[ ! -f "/etc/letsencrypt/live/$HY2_DOMAIN/fullchain.pem" ]]; then
-    certbot certonly --standalone \
-      -d "$HY2_DOMAIN" \
-      --non-interactive \
-      --agree-tos \
-      -m "$CERT_EMAIL"
-  fi
-
+if [[ -d /etc/letsencrypt ]]; then
   cat >> "$REMNA_DIR/docker-compose.yml" <<'EOF'
     volumes:
       - /etc/letsencrypt:/etc/letsencrypt:ro
 EOF
-  if (( ENABLE_SITE )); then
-    cat >> "$REMNA_DIR/docker-compose.yml" <<EOF
-      - $SITE_DIR:$SITE_DIR:ro
-EOF
+fi
+
+configure_panel_firewall
+
+if (( ENABLE_HY2 )); then
+  if [[ ! -f "/etc/letsencrypt/live/$HY2_DOMAIN/fullchain.pem" ]]; then
+    if (( ENABLE_SITE )); then
+      certbot certonly --webroot -w "$ACME_DIR" -d "$HY2_DOMAIN" --cert-name "$HY2_DOMAIN" --non-interactive --agree-tos -m "$CERT_EMAIL"
+    else
+      certbot certonly --standalone -d "$HY2_DOMAIN" --non-interactive --agree-tos -m "$CERT_EMAIL"
+    fi
   fi
 fi
 
 if (( ENABLE_SITE || ENABLE_HY2 )); then
   mkdir -p /etc/letsencrypt/renewal-hooks/deploy
-  cat > "$RENEW_HOOK" <<EOF
-#!/bin/sh
-EOF
-  if (( ENABLE_SITE )); then
+  if [[ ! -f "$RENEW_HOOK" ]]; then
+    printf '#!/bin/sh\n' > "$RENEW_HOOK"
+  fi
+  if (( ENABLE_SITE )) && ! grep -Fxq 'systemctl reload nginx' "$RENEW_HOOK"; then
     printf '%s\n' 'systemctl reload nginx' >> "$RENEW_HOOK"
   fi
-  if (( ENABLE_HY2 )); then
+  if (( ENABLE_HY2 )) && ! grep -Fxq 'docker restart remnanode' "$RENEW_HOOK"; then
     printf '%s\n' 'docker restart remnanode' >> "$RENEW_HOOK"
   fi
   chmod +x "$RENEW_HOOK"
@@ -410,8 +437,7 @@ if (( ENABLE_SITE )); then
   echo "После настройки REALITY сайт будет доступен по адресу: https://$SITE_DOMAIN/"
   echo "REALITY: target=127.0.0.1:$SITE_PORT, serverNames=[\"$SITE_DOMAIN\"], xver=0"
   echo "В Remnawave укажите этот домен в SNI клиентского профиля и target в конфигурации REALITY."
-  if (( ENABLE_HY2 )); then
-    echo "Hysteria2: SNI=$SITE_DOMAIN, cert=/etc/letsencrypt/live/$SITE_DOMAIN/fullchain.pem, key=/etc/letsencrypt/live/$SITE_DOMAIN/privkey.pem"
-    echo "Для ответа на проверки QUIC задайте Hysteria2 masquerade: {\"type\":\"file\",\"dir\":\"$SITE_DIR\"}"
-  fi
+fi
+if (( ENABLE_HY2 )); then
+  echo "Hysteria2: отдельный домен $HY2_DOMAIN, сертификат /etc/letsencrypt/live/$HY2_DOMAIN/fullchain.pem"
 fi
