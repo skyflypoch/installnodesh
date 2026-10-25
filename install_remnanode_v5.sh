@@ -171,280 +171,208 @@ EOF
 }
 
 write_site() {
-  local variant accent background ink muted zone other_zone
+  local variant staged previous
   variant=$(( $(printf '%s' "$SITE_DOMAIN" | cksum | awk '{print $1}') % 6 ))
-  case "$variant" in
-    0) accent="#245f59"; background="#eef3f1"; ink="#183531"; muted="#59736d"; zone="Europe/Berlin"; other_zone="America/New_York" ;;
-    1) accent="#345d86"; background="#eef2f7"; ink="#1d3349"; muted="#61778b"; zone="Europe/Helsinki"; other_zone="Europe/London" ;;
-    2) accent="#6c6030"; background="#f3f3ec"; ink="#373627"; muted="#77755e"; zone="Europe/Amsterdam"; other_zone="Asia/Tokyo" ;;
-    3) accent="#87554b"; background="#f5f0ee"; ink="#402d2b"; muted="#866d68"; zone="Europe/Tallinn"; other_zone="America/Toronto" ;;
-    4) accent="#28677c"; background="#edf3f5"; ink="#1e3740"; muted="#5e7982"; zone="Europe/Warsaw"; other_zone="Asia/Singapore" ;;
-    5) accent="#5e5883"; background="#f2f1f6"; ink="#333047"; muted="#747085"; zone="Europe/Vienna"; other_zone="America/Los_Angeles" ;;
-  esac
-  case "$SITE_DOMAIN" in
-    de.*|de-*) zone="Europe/Berlin"; other_zone="Europe/London" ;;
-    nl.*|nl-*) zone="Europe/Amsterdam"; other_zone="America/New_York" ;;
-    fi.*|fi-*) zone="Europe/Helsinki"; other_zone="Europe/London" ;;
-    ee.*|ee-*) zone="Europe/Tallinn"; other_zone="Europe/London" ;;
-    pl.*|pl-*) zone="Europe/Warsaw"; other_zone="Asia/Tokyo" ;;
-    hk.*|hk-*) zone="Asia/Hong_Kong"; other_zone="Europe/London" ;;
-    ae.*|ae-*) zone="Asia/Dubai"; other_zone="Europe/London" ;;
-  esac
-  SITE_DIR="$SITE_DIR" SITE_DOMAIN="$SITE_DOMAIN" SITE_VARIANT="$variant" SITE_ZONE="$zone" SITE_OTHER_ZONE="$other_zone" python3 - <<'PY'
+  staged="$(mktemp -d "$REMNA_DIR/selfsteal/.site-next.XXXXXX")"
+  chmod 755 "$staged"
+  (umask 022; SITE_DIR="$staged" SITE_DOMAIN="$SITE_DOMAIN" SITE_VARIANT="$variant" python3 - <<'PY'
 from pathlib import Path
 from html import escape
+import json
 import os
-import textwrap
 
 root = Path(os.environ["SITE_DIR"])
 domain = os.environ["SITE_DOMAIN"]
 variant = int(os.environ["SITE_VARIANT"])
-primary_zone = os.environ["SITE_ZONE"]
-secondary_zone = os.environ["SITE_OTHER_ZONE"]
 palettes = [
-    ("#245f59", "#eef3f1", "#183531", "#59736d"),
-    ("#345d86", "#eef2f7", "#1d3349", "#61778b"),
-    ("#6c6030", "#f3f3ec", "#373627", "#77755e"),
-    ("#87554b", "#f5f0ee", "#402d2b", "#866d68"),
-    ("#28677c", "#edf3f5", "#1e3740", "#5e7982"),
-    ("#5e5883", "#f2f1f6", "#333047", "#747085"),
+    ("#255f69", "#eef3f3", "#183339", "#58717a"),
+    ("#3d5c89", "#eef1f7", "#1f3048", "#64748c"),
+    ("#655c35", "#f3f2e9", "#393527", "#7b7661"),
+    ("#8a5148", "#f6f0ed", "#402d2a", "#806962"),
+    ("#2a6b60", "#edf4f0", "#1e3a32", "#5c7b70"),
+    ("#675983", "#f2f0f6", "#322e45", "#777088"),
 ]
 accent, background, ink, muted = palettes[variant]
-zones = [
-    ("Europe/Berlin", "Berlin"), ("Europe/London", "London"),
-    ("Europe/Amsterdam", "Amsterdam"), ("Europe/Helsinki", "Helsinki"),
-    ("Europe/Tallinn", "Tallinn"), ("Europe/Warsaw", "Warsaw"),
-    ("Europe/Vienna", "Vienna"), ("Asia/Dubai", "Dubai"),
-    ("Asia/Hong_Kong", "Hong Kong"), ("Asia/Singapore", "Singapore"),
-    ("Asia/Tokyo", "Tokyo"), ("America/New_York", "New York"),
-    ("America/Toronto", "Toronto"), ("America/Los_Angeles", "Los Angeles"),
+headlines = [
+    "Разобраться с файлом проще, чем кажется.",
+    "Понятные форматы для обычных задач.",
+    "Открывайте, проверяйте, сохраняйте.",
+    "Что внутри файла — без догадок.",
+    "Файлы без лишней сложности.",
+    "Когда формат перестаёт быть загадкой.",
 ]
-zone_names = dict(zones)
-lead_city = zone_names.get(primary_zone, "Berlin")
-other_city = zone_names.get(secondary_zone, "London")
-taglines = [
-    "A clearer way to work across time zones.",
-    "Keep the same moment in view.",
-    "Time is local. The moment is shared.",
-    "Find a better hour for everyone.",
-    "Across cities, on the same page.",
-    "Make room for the right time.",
-]
+featured = ["json", "csv", "markdown", "pdf", "txt", "zip"][variant]
 root.mkdir(parents=True, exist_ok=True)
 (root / "assets").mkdir(exist_ok=True)
 
 css = r'''
-:root{color-scheme:light;--accent:ACCENT;--bg:BACKGROUND;--ink:INK;--muted:MUTED;--line:#d7dfdc;--paper:#fff;--dark:#19322f}
+:root{color-scheme:light;--accent:ACCENT;--bg:BACKGROUND;--ink:INK;--muted:MUTED;--line:#d7dcd9;--paper:#fff}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:"Avenir Next","Segoe UI",Arial,sans-serif;-webkit-font-smoothing:antialiased}
-a{color:inherit}
-button,input,select{font:inherit}
-button{cursor:pointer}
-.site{max-width:1180px;margin:auto;padding:0 36px}
-.skip{position:absolute;left:-9999px;top:8px;padding:10px;background:#fff;z-index:100}
-.skip:focus{left:10px}
-.topbar{min-height:82px;display:flex;align-items:center;justify-content:space-between;gap:24px;border-bottom:1px solid var(--line)}
-.brand{font-size:25px;font-weight:800;letter-spacing:-.075em;text-decoration:none;white-space:nowrap;display:inline-flex;align-items:center;gap:10px}
-.brand i{width:13px;height:13px;border:3px solid var(--accent);border-radius:50%;display:block}
-.nav{display:flex;align-items:center;gap:25px;font-size:14px;font-weight:650}
-.nav a{text-decoration:none;color:var(--muted);white-space:nowrap}
-.nav a:hover,.nav a[aria-current=page]{color:var(--ink)}
-.nav a[aria-current=page]{box-shadow:0 2px var(--accent)}
-.hero{padding:78px 0 72px;display:grid;grid-template-columns:1.08fr .92fr;gap:8%;align-items:center}
-.eyebrow{display:block;color:var(--accent);font-size:12px;font-weight:800;letter-spacing:.15em;text-transform:uppercase;margin-bottom:19px}
-h1{font-size:clamp(46px,6.6vw,84px);line-height:1.03;letter-spacing:-.075em;margin:0 0 24px;font-weight:680}
-h2{font-size:clamp(29px,3.5vw,44px);line-height:1.12;letter-spacing:-.055em;margin:0 0 18px;font-weight:680}
-h3{font-size:21px;line-height:1.25;letter-spacing:-.03em;margin:0 0 12px}
-p{line-height:1.67;margin:0 0 18px}
-.hero p,.page-intro p{font-size:18px;max-width:620px;color:var(--muted)}
-.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:30px}
-.btn{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:0 18px;border-radius:10px;border:1px solid var(--accent);background:var(--accent);color:#fff;text-decoration:none;font-weight:700;font-size:14px}
-.btn.alt{background:transparent;color:var(--ink);border-color:#bfcfca}
-.btn:hover{filter:brightness(.95)}
-.clock-panel{background:var(--ink);color:#fff;border-radius:22px;padding:32px;min-height:350px;display:flex;flex-direction:column;justify-content:space-between}
-.clock-panel .micro{font-size:13px;color:#bbd0ca}
-.clock-panel strong{font-size:clamp(64px,7vw,102px);font-weight:600;letter-spacing:-.08em;line-height:1;font-variant-numeric:tabular-nums;display:block;margin:24px 0 10px}
-.clock-panel p{color:#e2ece9;font-size:17px;margin:0}
-.clock-panel .panel-foot{border-top:1px solid #49625b;padding-top:18px;display:flex;justify-content:space-between;gap:14px;font-size:13px;color:#c6d7d1}
-.section{padding:65px 0;border-top:1px solid var(--line)}
-.section-head{display:flex;justify-content:space-between;gap:32px;align-items:end;margin-bottom:28px}
-.section-head p{max-width:420px;color:var(--muted)}
-.link{color:var(--accent);font-weight:750;text-decoration:none}
-.link:hover{text-decoration:underline}
-.tool-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
-.tool-card{background:var(--paper);border:1px solid var(--line);border-radius:15px;min-height:210px;padding:27px;display:flex;flex-direction:column;text-decoration:none;transition:transform .15s,border-color .15s}
-.tool-card:hover{transform:translateY(-3px);border-color:var(--accent)}
-.tool-card .num{font-size:13px;color:var(--accent);font-weight:800;margin-bottom:38px}
-.tool-card p{color:var(--muted);font-size:14px;margin:0}
-.tool-card .arr{margin-top:auto;padding-top:18px;color:var(--accent);font-weight:700}
-.band{background:var(--ink);color:#fff;border-radius:18px;padding:37px;display:grid;grid-template-columns:1fr auto;gap:25px;align-items:center}
-.band p{color:#c6d7d1;margin:0}
-.band .btn{background:#fff;color:var(--ink);border-color:#fff}
-.page-intro{padding:66px 0 44px;max-width:770px}
-.page-intro h1{font-size:clamp(42px,5.8vw,72px)}
-.breadcrumbs{font-size:13px;color:var(--muted);margin-bottom:24px}
-.breadcrumbs a{text-decoration:none}
-.breadcrumbs a:hover{text-decoration:underline}
-.workspace{display:grid;grid-template-columns:1.05fr .95fr;gap:18px;padding-bottom:65px}
-.panel{background:#fff;border:1px solid var(--line);border-radius:18px;padding:30px}
-.panel.dark{background:var(--ink);color:#fff;border-color:var(--ink)}
-.panel.dark p,.panel.dark .small{color:#c7d9d2}
-.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.field{display:flex;flex-direction:column;gap:9px;margin-bottom:19px}
-.field label{font-size:14px;font-weight:700}
-.field input,.field select{min-height:50px;width:100%;border:1px solid #bdccc7;border-radius:9px;background:#fff;color:#19322f;padding:0 13px}
-.field input:focus-visible,.field select:focus-visible,button:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
-.result-number{display:block;font-size:clamp(58px,7vw,98px);font-weight:600;line-height:1.1;letter-spacing:-.08em;font-variant-numeric:tabular-nums;margin:30px 0 12px}
-.small{font-size:14px;color:var(--muted)}
-.feedback{min-height:22px;font-size:14px;color:var(--muted)}
-.feedback.error{color:#b13c36}
-.list{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin:0 0 65px}
-.list a{display:block;background:#fff;border:1px solid var(--line);border-radius:12px;padding:22px;text-decoration:none}
-.list a:hover{border-color:var(--accent)}
-.list a strong{display:block;font-size:19px;letter-spacing:-.03em;margin-bottom:8px}
-.list a span{display:block;font-size:14px;color:var(--muted);line-height:1.5}
-.prose{max-width:760px;padding-bottom:75px}
-.prose h2{font-size:30px;margin:48px 0 15px}
-.prose h3{margin:28px 0 12px}
-.prose p,.prose li{font-size:17px;line-height:1.72;color:#425c55}
-.prose ul,.prose ol{padding-left:23px}
-.prose li{margin:10px 0}
-.prose aside{background:#fff;border-left:4px solid var(--accent);padding:22px 25px;margin:31px 0}
-.prose aside p{margin:0}
-.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:20px 0 60px}
-.fact{border-top:2px solid var(--accent);padding:17px 0}
-.fact strong{display:block;font-size:21px;margin-bottom:8px}
-.fact span{color:var(--muted);font-size:14px;line-height:1.5}
-.clock-list{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;padding-bottom:65px}
-.clock-row{background:#fff;border:1px solid var(--line);border-radius:12px;padding:22px;display:flex;align-items:center;justify-content:space-between;gap:20px}
-.clock-row span{display:block;font-size:14px;color:var(--muted);margin-top:4px}
-.clock-row time{font-size:34px;letter-spacing:-.06em;font-variant-numeric:tabular-nums}
-.meeting-list{display:grid;gap:7px;max-height:560px;overflow:auto}
-.meeting-row{display:grid;grid-template-columns:1fr 1fr auto;gap:12px;align-items:center;padding:10px 12px;border-radius:8px;background:#f4f7f5;font-size:14px}
-.meeting-row.good{background:#e1efe8}
-.meeting-row em{font-style:normal;font-size:12px;color:#527465}
-.footer{border-top:1px solid var(--line);padding:32px 0 38px;display:flex;justify-content:space-between;gap:30px;color:var(--muted);font-size:13px}
-.footer-links{display:flex;gap:18px;flex-wrap:wrap}
-.footer a{text-decoration:none}
-.footer a:hover{text-decoration:underline}
-@media(max-width:800px){.site{padding:0 22px}.topbar{align-items:flex-start;flex-direction:column;justify-content:center;padding:19px 0;gap:16px}.nav{max-width:100%;overflow:auto;padding-bottom:5px}.hero{grid-template-columns:1fr;gap:30px;padding:57px 0}.clock-panel{min-height:300px}.tool-grid{grid-template-columns:1fr 1fr}.workspace{grid-template-columns:1fr}.section-head{display:block}.section-head p{margin:0}.facts{grid-template-columns:1fr 1fr}}
-@media(max-width:560px){.site{padding:0 18px}.nav{gap:17px;font-size:13px}.hero h1{font-size:51px}.hero p,.page-intro p{font-size:16px}.page-intro{padding:48px 0 31px}.tool-grid,.list,.clock-list,.facts,.field-grid{grid-template-columns:1fr}.tool-card{min-height:180px}.band{grid-template-columns:1fr}.panel{padding:23px}.footer{flex-direction:column}.clock-row time{font-size:28px}.meeting-row{grid-template-columns:1fr 1fr}.meeting-row em{grid-column:1/-1}}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Segoe UI",Arial,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:inherit}button,input,textarea{font:inherit}button{cursor:pointer}
+.site{max-width:1200px;margin:auto;padding:0 38px}
+.skip{position:absolute;left:-9999px;top:10px;padding:10px;background:#fff;z-index:100}.skip:focus{left:10px}
+.topbar{min-height:85px;display:flex;align-items:center;justify-content:space-between;gap:26px;border-bottom:1px solid var(--line)}
+.brand{font-weight:800;font-size:24px;letter-spacing:-.07em;text-decoration:none;white-space:nowrap}
+.brand i{font-style:normal;color:var(--accent)}
+.nav{display:flex;gap:29px;align-items:center;font-size:14px;font-weight:650}
+.nav a{text-decoration:none;color:var(--muted);white-space:nowrap}.nav a:hover,.nav a[aria-current=page]{color:var(--ink)}.nav a[aria-current=page]{box-shadow:0 2px var(--accent)}
+.hero{padding:82px 0 78px;display:grid;grid-template-columns:1.08fr .92fr;gap:7%;align-items:center}
+.eyebrow{display:block;margin-bottom:20px;font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+h1{font-size:clamp(46px,6.2vw,82px);line-height:1.05;letter-spacing:-.067em;font-weight:750;margin:0 0 24px}
+h2{font-size:clamp(29px,3.5vw,44px);line-height:1.14;letter-spacing:-.048em;margin:0 0 18px}
+h3{font-size:21px;line-height:1.27;letter-spacing:-.025em;margin:0 0 11px}
+p{line-height:1.66;margin:0 0 18px}.hero p,.intro p{font-size:18px;color:var(--muted);max-width:620px}
+.actions{display:flex;gap:11px;flex-wrap:wrap;margin-top:30px}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:0 18px;border:1px solid var(--accent);border-radius:9px;background:var(--accent);color:#fff;font-size:14px;font-weight:700;text-decoration:none}
+.btn.alt{background:transparent;border-color:#bfcac5;color:var(--ink)}.btn:hover{filter:brightness(.95)}
+.sample{background:var(--ink);color:#fff;border-radius:20px;padding:28px;min-height:390px;box-shadow:0 22px 50px rgba(31,42,38,.08)}
+.sample-top{display:flex;align-items:center;justify-content:space-between;padding-bottom:18px;border-bottom:1px solid rgba(255,255,255,.2);font-size:12px;color:#c5d2cd}
+.sample-dots{display:flex;gap:6px}.sample-dots i{width:8px;height:8px;border-radius:50%;background:#8da89e}
+.sample pre{white-space:pre-wrap;word-break:break-word;line-height:1.7;font-size:15px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin:25px 0;color:#e1eee9}
+.sample-foot{margin-top:25px;padding-top:17px;border-top:1px solid rgba(255,255,255,.2);font-size:13px;color:#c5d2cd}
+.section{padding:67px 0;border-top:1px solid var(--line)}
+.section-head{display:flex;justify-content:space-between;gap:32px;align-items:end;margin-bottom:27px}.section-head p{max-width:400px;color:var(--muted)}
+.cards{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:27px;text-decoration:none;display:flex;flex-direction:column;min-height:218px;transition:border-color .15s,transform .15s}
+.card:hover{border-color:var(--accent);transform:translateY(-2px)}.card small{color:var(--accent);font-weight:800;letter-spacing:.1em;margin-bottom:27px}.card p{font-size:14px;color:var(--muted);margin:0}.card span{color:var(--accent);font-size:14px;font-weight:700;margin-top:auto;padding-top:20px}
+.links{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.links a{background:#fff;border:1px solid var(--line);border-radius:11px;padding:22px;text-decoration:none}.links a:hover{border-color:var(--accent)}.links strong{display:block;font-size:19px;margin-bottom:7px}.links span{display:block;font-size:14px;line-height:1.5;color:var(--muted)}
+.band{display:grid;grid-template-columns:1fr auto;gap:20px;align-items:center;background:var(--ink);color:#fff;border-radius:18px;padding:36px}.band p{color:#d0dcd6;margin:0}.band .btn{background:#fff;border-color:#fff;color:var(--ink)}
+.intro{max-width:790px;padding:64px 0 43px}.intro h1{font-size:clamp(42px,5.6vw,68px)}.crumbs{font-size:13px;color:var(--muted);margin-bottom:25px}.crumbs a{text-decoration:none}.crumbs a:hover{text-decoration:underline}
+.tool-layout{display:grid;grid-template-columns:1fr .85fr;gap:17px;padding-bottom:65px}.panel{background:#fff;border:1px solid var(--line);border-radius:15px;padding:28px}.panel.dark{background:var(--ink);color:#fff;border-color:var(--ink)}
+label{display:block;font-size:14px;font-weight:700;margin-bottom:10px}
+textarea,input[type=text]{width:100%;border:1px solid #bbc9c2;border-radius:9px;background:#fff;color:#172f29;padding:13px;font-size:15px}
+textarea{min-height:270px;resize:vertical;line-height:1.5}.shortarea{min-height:175px}
+textarea:focus-visible,input:focus-visible,button:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+.feedback{min-height:24px;margin:14px 0 0;font-size:14px;color:var(--muted)}.feedback.error{color:#b23e39}
+.stat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.stat{padding:18px;border-radius:10px;background:#f0f5f2}.stat strong{display:block;font-size:32px;letter-spacing:-.05em}.stat span{color:var(--muted);font-size:13px}
+.panel pre{white-space:pre-wrap;word-break:break-word;font:14px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;margin:0}
+.output{min-height:110px;padding:17px;background:#f0f4f2;border-radius:9px;overflow:auto;word-break:break-word}
+.table-scroll{overflow:auto;max-height:520px}.data-table{border-collapse:collapse;width:100%;font-size:14px}.data-table th,.data-table td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;min-width:90px}.data-table th{background:#e8f0eb;position:sticky;top:0}
+.prose{max-width:780px;padding-bottom:78px}.prose h2{font-size:31px;margin:48px 0 15px}.prose h3{margin:28px 0 12px}.prose p,.prose li{font-size:17px;line-height:1.72;color:#405c53}.prose ul,.prose ol{padding-left:23px}.prose li{margin:9px 0}
+.prose aside{background:#fff;border-left:4px solid var(--accent);padding:22px 25px;margin:30px 0}.prose aside p{margin:0}
+.inline-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.9em;background:#e5ebe7;border-radius:4px;padding:2px 5px}
+.format-facts{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding:0 0 55px}.format-facts div{border-top:2px solid var(--accent);padding-top:16px}.format-facts strong{display:block;margin-bottom:8px}.format-facts span{font-size:14px;color:var(--muted);line-height:1.5}
+.related{padding:35px 0 70px;border-top:1px solid var(--line)}
+.footer{display:flex;justify-content:space-between;gap:25px;border-top:1px solid var(--line);padding:30px 0 37px;color:var(--muted);font-size:13px}.footer-links{display:flex;gap:17px;flex-wrap:wrap}.footer a{text-decoration:none}.footer a:hover{text-decoration:underline}
+@media(max-width:850px){.site{padding:0 22px}.topbar{align-items:flex-start;flex-direction:column;justify-content:center;padding:20px 0;gap:16px}.nav{max-width:100%;overflow:auto;padding-bottom:5px}.hero{grid-template-columns:1fr;gap:31px;padding:60px 0}.sample{min-height:0}.tool-layout{grid-template-columns:1fr}.section-head{display:block}.links{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:560px){.site{padding:0 18px}.nav{gap:19px;font-size:13px}.hero h1{font-size:48px}.hero p,.intro p{font-size:16px}.intro{padding:47px 0 30px}.cards,.links,.format-facts{grid-template-columns:1fr}.card{min-height:175px}.band{grid-template-columns:1fr}.panel{padding:22px}.footer{flex-direction:column}.sample pre{font-size:13px}.stat strong{font-size:27px}}
 '''
-for key, value in {"ACCENT":accent,"BACKGROUND":background,"INK":ink,"MUTED":muted}.items():
-    css = css.replace(key, value)
-(root / "assets/site.css").write_text(css.strip() + "\n")
+for key,value in {"ACCENT":accent,"BACKGROUND":background,"INK":ink,"MUTED":muted}.items():
+    css = css.replace(key,value)
+(root / "assets/site.css").write_text(css.strip()+"\n")
 
 js = r'''
 "use strict";
-const places=[["Europe/Berlin","Berlin"],["Europe/London","London"],["Europe/Amsterdam","Amsterdam"],["Europe/Helsinki","Helsinki"],["Europe/Tallinn","Tallinn"],["Europe/Warsaw","Warsaw"],["Europe/Vienna","Vienna"],["Asia/Dubai","Dubai"],["Asia/Hong_Kong","Hong Kong"],["Asia/Singapore","Singapore"],["Asia/Tokyo","Tokyo"],["America/New_York","New York"],["America/Toronto","Toronto"],["America/Los_Angeles","Los Angeles"]];
-const labels=Object.fromEntries(places);
-const clock=(date,zone)=>new Intl.DateTimeFormat("en-GB",{timeZone:zone,hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).format(date);
-const day=(date,zone)=>new Intl.DateTimeFormat("en-GB",{timeZone:zone,weekday:"long",day:"numeric",month:"long",year:"numeric"}).format(date);
-const isWeekday=(date,zone)=>!["Sat","Sun"].includes(new Intl.DateTimeFormat("en-US",{timeZone:zone,weekday:"short"}).format(date));
-function parts(date,zone){const out={};for(const p of new Intl.DateTimeFormat("en-GB",{timeZone:zone,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(date)){if(p.type!=="literal")out[p.type]=Number(p.value);}return out;}
-function wall(date,zone){const p=parts(date,zone);return [String(p.year).padStart(4,"0"),String(p.month).padStart(2,"0"),String(p.day).padStart(2,"0")].join("-")+"T"+String(p.hour).padStart(2,"0")+":"+String(p.minute).padStart(2,"0");}
-function instant(value,zone){const m=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);if(!m)return null;const target=Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5]);let ms=target;for(let i=0;i<4;i++){const p=parts(new Date(ms),zone);const delta=target-Date.UTC(p.year,p.month-1,p.day,p.hour,p.minute);ms+=delta;if(delta===0)break;}const result=new Date(ms);return wall(result,zone)===value?result:null;}
-function fillZones(select,initial){for(const [zone,name] of places)select.add(new Option(name,zone));select.value=labels[initial]?initial:places[0][0];}
-function live(){for(const el of document.querySelectorAll("[data-clock]")){const zone=el.dataset.clock;el.textContent=clock(new Date(),zone);}for(const el of document.querySelectorAll("[data-date]")){el.textContent=day(new Date(),el.dataset.date);}}
-live();setInterval(live,30000);
-const converter=document.getElementById("converter");
-if(converter){const from=document.getElementById("from-zone"),to=document.getElementById("to-zone"),input=document.getElementById("from-time"),result=document.getElementById("result-time"),resultDate=document.getElementById("result-date"),feedback=document.getElementById("feedback");fillZones(from,converter.dataset.from);fillZones(to,converter.dataset.to);input.value=wall(new Date(),from.value);let previous=from.value;function render(){const date=instant(input.value,from.value);if(!date){result.textContent="--:--";resultDate.textContent="Choose another local time.";feedback.textContent="This time may be invalid because local clocks changed.";feedback.classList.add("error");return;}result.textContent=clock(date,to.value);resultDate.textContent=day(date,to.value)+" in "+labels[to.value];feedback.textContent="";feedback.classList.remove("error");}from.addEventListener("change",()=>{const date=instant(input.value,previous);previous=from.value;if(date)input.value=wall(date,from.value);render();});to.addEventListener("change",render);input.addEventListener("input",render);document.getElementById("now-button").addEventListener("click",()=>{input.value=wall(new Date(),from.value);render();});document.getElementById("swap-button").addEventListener("click",()=>{const date=instant(input.value,from.value);const old=from.value;from.value=to.value;to.value=old;previous=from.value;if(date)input.value=wall(date,from.value);render();});document.getElementById("copy-button").addEventListener("click",async()=>{const date=instant(input.value,from.value);if(!date)return;try{await navigator.clipboard.writeText(clock(date,to.value)+" "+day(date,to.value)+" in "+labels[to.value]);feedback.textContent="Copied to clipboard.";feedback.classList.remove("error");}catch{feedback.textContent="Clipboard access is unavailable.";feedback.classList.add("error");}});render();}
-const meeting=document.getElementById("meeting-planner");
-if(meeting){const from=document.getElementById("meeting-from"),to=document.getElementById("meeting-to"),input=document.getElementById("meeting-date"),list=document.getElementById("meeting-list"),feedback=document.getElementById("meeting-feedback");fillZones(from,meeting.dataset.from);fillZones(to,meeting.dataset.to);input.value=wall(new Date(),from.value).slice(0,10);function render(){list.replaceChildren();if(!input.value){feedback.textContent="Choose a date.";return;}let count=0;for(let hour=7;hour<=21;hour++){const date=instant(input.value+"T"+String(hour).padStart(2,"0")+":00",from.value);if(!date)continue;const local=parts(date,to.value);const good=hour>=9&&hour<18&&local.hour>=9&&local.hour<18&&isWeekday(date,from.value)&&isWeekday(date,to.value);const row=document.createElement("div");row.className="meeting-row"+(good?" good":"");const a=document.createElement("span"),b=document.createElement("span"),c=document.createElement("em");a.textContent=String(hour).padStart(2,"0")+":00 "+labels[from.value];b.textContent=clock(date,to.value)+" "+labels[to.value];c.textContent=good?"Both in working hours":day(date,to.value).split(",")[0];row.append(a,b,c);list.append(row);if(good)count++;}feedback.textContent=count?count+" shared weekday working-hour slots shown in green.":"No shared weekday 09:00–18:00 slots on this date.";};from.addEventListener("change",render);to.addEventListener("change",render);input.addEventListener("input",render);render();}
-const gap=document.getElementById("date-gap");
-if(gap){const a=document.getElementById("date-a"),b=document.getElementById("date-b"),out=document.getElementById("gap-result"),caption=document.getElementById("gap-caption");const today=new Date();a.value=today.toISOString().slice(0,10);b.value=new Date(today.getTime()+7*86400000).toISOString().slice(0,10);function utc(value){const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(value);return m?Date.UTC(+m[1],+m[2]-1,+m[3]):null;}function render(){const x=utc(a.value),y=utc(b.value);if(x===null||y===null){out.textContent="—";caption.textContent="Select two valid dates.";return;}const days=Math.round(Math.abs(y-x)/86400000);out.textContent=String(days);caption.textContent=days===1?"calendar day between the dates":"calendar days between the dates";}a.addEventListener("input",render);b.addEventListener("input",render);render();}
+const byId=id=>document.getElementById(id);
+const setStatus=(id,message,error=false)=>{const el=byId(id);el.textContent=message;el.classList.toggle("error",error);};
+const textInput=byId("text-input");
+if(textInput){const update=()=>{const value=textInput.value;byId("chars").textContent=String(Array.from(value).length);byId("words").textContent=String((value.trim().match(/\S+/g)||[]).length);byId("lines").textContent=String(value?value.split(/\r\n|\r|\n/).length:0);byId("bytes").textContent=String(new TextEncoder().encode(value).length);};textInput.addEventListener("input",update);byId("clear-text").addEventListener("click",()=>{textInput.value="";update();textInput.focus();});update();}
+const jsonInput=byId("json-input");
+if(jsonInput){const output=byId("json-output");byId("format-json").addEventListener("click",()=>{try{const result=JSON.stringify(JSON.parse(jsonInput.value),null,2);output.textContent=result;setStatus("json-status","Корректный JSON. Форматирование готово.");}catch(error){output.textContent="";setStatus("json-status","Ошибка JSON: "+error.message,true);}});byId("copy-json").addEventListener("click",async()=>{if(!output.textContent){setStatus("json-status","Сначала проверьте JSON.",true);return;}try{await navigator.clipboard.writeText(output.textContent);setStatus("json-status","Результат скопирован.");}catch{setStatus("json-status","Копирование недоступно в этом браузере.",true);}});}
+function parseCsv(source){const rows=[];let row=[],cell="",quoted=false,closed=false;for(let i=0;i<source.length;i++){const c=source[i];if(quoted){if(c==='"'&&source[i+1]==='"'){cell+='"';i++;}else if(c==='"'){quoted=false;closed=true;}else{cell+=c;}}else if(c==='"'){if(cell||closed)throw Error("Кавычка внутри поля");quoted=true;}else if(c===","){row.push(cell);cell="";closed=false;}else if(c==="\n"||c==="\r"){if(c==="\r"&&source[i+1]==="\n")i++;row.push(cell);rows.push(row);row=[];cell="";closed=false;}else{if(closed&&c!==" ")throw Error("Текст после закрывающей кавычки");cell+=c;}}if(quoted)throw Error("Не закрыта кавычка");if(cell||row.length||closed){row.push(cell);rows.push(row);}return rows;}
+const csvInput=byId("csv-input");
+if(csvInput){byId("show-csv").addEventListener("click",()=>{const area=byId("csv-table");area.replaceChildren();try{const rows=parseCsv(csvInput.value);if(!rows.length)throw Error("Вставьте CSV-таблицу");if(rows.length>201||rows.some(row=>row.length>30))throw Error("Для просмотра доступны первые 200 строк и до 30 столбцов");const width=rows[0].length;if(rows.some(row=>row.length!==width))throw Error("В строках разное число столбцов");const table=document.createElement("table");table.className="data-table";for(let i=0;i<rows.length;i++){const tr=document.createElement("tr");for(const cell of rows[i]){const el=document.createElement(i===0?"th":"td");el.textContent=cell;tr.append(el);}table.append(tr);}area.append(table);setStatus("csv-status","Показано строк данных: "+Math.max(0,rows.length-1)+".");}catch(error){setStatus("csv-status","Не удалось прочитать CSV: "+error.message,true);}});}
+const hashInput=byId("hash-input");
+if(hashInput){byId("hash-button").addEventListener("click",async()=>{const file=hashInput.files&&hashInput.files[0];if(!file){setStatus("hash-status","Выберите файл.",true);return;}if(file.size>50*1024*1024){setStatus("hash-status","Выберите файл до 50 МБ.",true);return;}try{const digest=await crypto.subtle.digest("SHA-256",await file.arrayBuffer());const value=Array.from(new Uint8Array(digest),x=>x.toString(16).padStart(2,"0")).join("");byId("hash-result").textContent=value;setStatus("hash-status","Готово: "+file.name+" · "+file.size+" байт.");}catch{setStatus("hash-status","Не удалось вычислить SHA-256 в этом браузере.",true);}});}
 '''
-(root / "assets/site.js").write_text(js.strip() + "\n")
+(root / "assets/site.js").write_text(js.strip()+"\n")
 
-def page(path, title, description, main, nav=""):
-    current = lambda name: ' aria-current="page"' if nav == name else ""
-    header = f'''<a class="skip" href="#main">Skip to content</a><div class="site"><header class="topbar"><a class="brand" href="/">clockline<i aria-hidden="true"></i></a><nav class="nav" aria-label="Main navigation"><a href="/convert/"{current("convert")}>Converter</a><a href="/meeting/"{current("meeting")}>Meeting planner</a><a href="/world-clock/"{current("world")}>World clock</a><a href="/guides/"{current("guides")}>Guides</a><a href="/cities/"{current("cities")}>Cities</a></nav></header><main id="main">{main}</main><footer class="footer"><span>Clockline · Practical time tools for everyday planning</span><div class="footer-links"><a href="/about/">About</a><a href="/privacy/">Privacy</a><span>{escape(domain)}</span></div></footer></div>'''
-    html = f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="{background}"><meta name="description" content="{escape(description, quote=True)}"><link rel="icon" href="/assets/favicon.svg" type="image/svg+xml"><link rel="manifest" href="/site.webmanifest"><link rel="stylesheet" href="/assets/site.css"><title>{escape(title)} — Clockline</title></head><body>{header}<script defer src="/assets/site.js"></script></body></html>'''
-    dest = root / path
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(html + "\n")
-    return "/" + (str(Path(path).parent) + "/" if path != "index.html" else "")
+def page(path,title,description,body,active=""):
+    nav=lambda key: ' aria-current="page"' if key==active else ""
+    shell=f'''<a class="skip" href="#main">К содержимому</a><div class="site"><header class="topbar"><a class="brand" href="/">форматы<i>.</i></a><nav class="nav" aria-label="Основная навигация"><a href="/tools/"{nav("tools")}>Инструменты</a><a href="/formats/"{nav("formats")}>Форматы</a><a href="/guides/"{nav("guides")}>Статьи</a><a href="/about/"{nav("about")}>О проекте</a></nav></header><main id="main">{body}</main><footer class="footer"><span>Форматы · Справочник и инструменты для работы с файлами</span><div class="footer-links"><a href="/privacy/">Конфиденциальность</a><a href="/about/">О проекте</a><span>{escape(domain)}</span></div></footer></div>'''
+    html=f'''<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="{background}"><meta name="description" content="{escape(description,quote=True)}"><link rel="icon" href="/assets/favicon.svg" type="image/svg+xml"><link rel="manifest" href="/site.webmanifest"><link rel="stylesheet" href="/assets/site.css"><title>{escape(title)} — Форматы</title></head><body>{shell}<script defer src="/assets/site.js"></script></body></html>'''
+    target=root/path
+    target.parent.mkdir(parents=True,exist_ok=True)
+    target.write_text(html+"\n")
 
-crumb = lambda label: f'<div class="breadcrumbs"><a href="/">Home</a> / {escape(label)}</div>'
-intro = lambda label, title, text: f'<div class="page-intro">{crumb(label)}<span class="eyebrow">{escape(label)}</span><h1>{escape(title)}</h1><p>{escape(text)}</p></div>'
-tools = [
-    ("/convert/", "01", "Time zone converter", "Translate a local date and time into another city."),
-    ("/meeting/", "02", "Meeting planner", "Scan the hours two cities have in common."),
-    ("/world-clock/", "03", "World clock", "See the current time and date across cities."),
-    ("/date-gap/", "04", "Date gap", "Count calendar days between two dates."),
+def intro(section,title,summary):
+    return f'<div class="intro"><div class="crumbs"><a href="/">Главная</a> / {escape(section)}</div><span class="eyebrow">{escape(section)}</span><h1>{escape(title)}</h1><p>{escape(summary)}</p></div>'
+
+tools=[
+    ("text","Счётчик текста","Посчитать знаки, слова, строки и размер текста в UTF-8."),
+    ("json","Проверка JSON","Найти ошибку и привести данные к читаемому виду."),
+    ("csv","Просмотр CSV","Разобрать таблицу с учётом кавычек и переносов строк."),
+    ("sha256","SHA-256 файла","Получить контрольную сумму прямо в браузере."),
 ]
-tool_cards = ''.join(f'<a class="tool-card" href="{u}"><span class="num">{n} / TOOL</span><h3>{t}</h3><p>{d}</p><span class="arr">Open tool →</span></a>' for u,n,t,d in tools[:3])
-home = f'''<section class="hero"><div><span class="eyebrow">Clockline / Time tools</span><h1>{taglines[variant]}</h1><p>Compare local times, find a meeting hour and understand the dates behind the clock. Built for people who work, travel or talk across cities.</p><div class="actions"><a class="btn" href="/convert/">Convert a time</a><a class="btn alt" href="/guides/">Read the guides</a></div></div><div class="clock-panel"><div><span class="micro">LOCAL TIME · {escape(lead_city.upper())}</span><strong data-clock="{escape(primary_zone)}">--:--</strong><p data-date="{escape(primary_zone)}">Loading local date</p></div><div class="panel-foot"><span>Same moment in {escape(other_city)}</span><span data-clock="{escape(secondary_zone)}">--:--</span></div></div></section><section class="section"><div class="section-head"><div><span class="eyebrow">Choose a task</span><h2>Start with the time you know.</h2></div><p>Each tool works directly in your browser. No account or setup is needed.</p></div><div class="tool-grid">{tool_cards}</div><p style="margin-top:22px"><a class="link" href="/date-gap/">Count days between dates →</a></p></section><section class="section"><div class="band"><div><span class="eyebrow" style="color:#bfd6cf">A useful reference</span><h2>Clocks change. Your plans can keep up.</h2><p>Read how offsets, summer time and local dates affect calls and deadlines.</p></div><a class="btn" href="/guides/">Explore the guides</a></div></section>'''
-page("index.html", "Time tools for cities and dates", "Convert time zones, plan meetings, view world clocks and read practical guides.", home)
-
-convert = f'''{intro("Converter","Convert a time between cities","Enter a date and time where you are, then see the same moment in another city. Seasonal clock changes are handled by your browser's time-zone data.")}<section class="workspace" id="converter" data-from="{escape(primary_zone)}" data-to="{escape(secondary_zone)}"><div class="panel"><div class="field-grid"><div class="field"><label for="from-zone">From</label><select id="from-zone"></select></div><div class="field"><label for="to-zone">To</label><select id="to-zone"></select></div></div><div class="field"><label for="from-time">Local date and time</label><input id="from-time" type="datetime-local"></div><div class="actions"><button class="btn" id="now-button" type="button">Use current time</button><button class="btn alt" id="swap-button" type="button">Swap cities</button></div><p class="feedback" id="feedback" role="status" aria-live="polite"></p></div><div class="panel dark"><span class="small">THE SAME MOMENT</span><strong class="result-number" id="result-time">--:--</strong><p id="result-date">Choose a time</p><button class="btn alt" id="copy-button" type="button" style="color:#fff;border-color:#91aba2">Copy result</button></div></section><section class="section"><h2>Why the date can change</h2><p class="small">When two cities are far apart, a late evening in one can be the next morning in another. Check the full date before you book a call or set a deadline.</p><a class="link" href="/guides/utc-offsets/">How time-zone offsets work →</a></section>'''
-page("convert/index.html","Time zone converter","Convert a local time between cities with automatic seasonal time-zone rules.",convert,"convert")
-
-meeting = f'''{intro("Meeting planner","Find an hour that works in both cities","Compare a full day in two places. Green rows show weekday hours between 09:00 and 18:00 in both cities; check the date as well as the clock.")}<section class="workspace" id="meeting-planner" data-from="{escape(primary_zone)}" data-to="{escape(secondary_zone)}"><div class="panel"><div class="field-grid"><div class="field"><label for="meeting-from">First city</label><select id="meeting-from"></select></div><div class="field"><label for="meeting-to">Second city</label><select id="meeting-to"></select></div></div><div class="field"><label for="meeting-date">Date in the first city</label><input id="meeting-date" type="date"></div><p class="small">Working hours are a planning aid. Confirm availability and local holidays with the people involved.</p><p class="feedback" id="meeting-feedback" role="status" aria-live="polite"></p></div><div class="panel"><h3>Hour by hour</h3><div class="meeting-list" id="meeting-list"></div></div></section><section class="section"><h2>Before sending the invite</h2><p class="small">Include both the time zone and the calendar date. Around seasonal clock changes, an hour that worked last month may be different today.</p><a class="link" href="/guides/remote-meetings/">Read the meeting checklist →</a></section>'''
-page("meeting/index.html","Meeting planner","Compare two cities hour by hour and find shared working hours.",meeting,"meeting")
-
-world_cities = [primary_zone,secondary_zone,"Europe/London","Europe/Warsaw","Asia/Dubai","Asia/Tokyo","America/New_York","America/Los_Angeles"]
-world_cities = list(dict.fromkeys(world_cities))
-world_rows = ''.join(f'<div class="clock-row"><div><strong>{escape(zone_names[z])}</strong><span data-date="{escape(z)}">Loading date</span></div><time data-clock="{escape(z)}">--:--</time></div>' for z in world_cities)
-world = f'''{intro("World clock","The moment, around the world","These clocks update every 30 seconds. Each city shows its local date, which may differ from yours.")}<div class="clock-list">{world_rows}</div><section class="section"><h2>Need a particular hour?</h2><p class="small">Use the converter to translate a future date and time. The clocks above show only the current moment.</p><a class="link" href="/convert/">Open the converter →</a></section>'''
-page("world-clock/index.html","World clock","Live local times and dates in cities around the world.",world,"world")
-
-gap = f'''{intro("Date gap","Count the days between dates","Choose a start and end date. The result counts calendar-day boundaries and is unaffected by daylight saving time.")}<section class="workspace" id="date-gap"><div class="panel"><div class="field-grid"><div class="field"><label for="date-a">First date</label><input id="date-a" type="date"></div><div class="field"><label for="date-b">Second date</label><input id="date-b" type="date"></div></div><p class="small">The count excludes the starting day. For example, Monday to Tuesday is one day.</p></div><div class="panel dark"><span class="small">DATE DIFFERENCE</span><strong class="result-number" id="gap-result">—</strong><p id="gap-caption">calendar days between the dates</p></div></section><section class="section"><h2>Calendar days and elapsed hours</h2><p class="small">A calendar-day count is useful for scheduling. It is not always the same as dividing elapsed hours by 24 when clocks move forward or back.</p><a class="link" href="/guides/daylight-saving/">Understand clock changes →</a></section>'''
-page("date-gap/index.html","Date gap calculator","Count calendar days between two dates without daylight-saving surprises.",gap)
-
-guides = [
-    ("daylight-saving","What changes when clocks change","How seasonal time changes affect calls, dates and recurring events."),
-    ("utc-offsets","UTC offsets, without the jargon","Understand why an offset is a snapshot, not a permanent city rule."),
-    ("remote-meetings","A short checklist for remote meetings","Pick an hour, share the right date and avoid calendar surprises."),
+formats=[
+    ("json","JSON","Структурированные данные и настройки."),
+    ("csv","CSV","Таблицы в обычном текстовом файле."),
+    ("markdown","Markdown","Разметка для заметок и документации."),
+    ("pdf","PDF","Документы с сохраняемой вёрсткой."),
+    ("txt","TXT","Простой текст без оформления."),
+    ("zip","ZIP","Архив из нескольких файлов."),
 ]
-guide_links = ''.join(f'<a href="/guides/{slug}/"><strong>{title}</strong><span>{desc}</span></a>' for slug,title,desc in guides)
-page("guides/index.html","Guides to time zones and dates","Clear, practical guides to UTC offsets, seasonal clock changes and remote meetings.",intro("Guides","Understand the clock behind the calendar","Short explanations for the questions that come up when people plan across cities.")+f'<div class="list">{guide_links}</div>',"guides")
-articles = {
-"daylight-saving":(
-"What changes when clocks change",
-"Seasonal clock changes are local rules. Two cities can change on different dates, and some places do not change at all.",
-'''<h2>Why a familiar hour can move</h2><p>A city may move its clocks forward or back during the year. That changes its offset from UTC, and therefore the hour shown in another city at the same moment. The date of the change is set locally and can differ between countries.</p><h2>Two tricky local times</h2><p>When clocks move forward, part of the local morning may never occur. When they move back, an hour can occur twice. If a time falls in either window, ask for the date and the time zone, or share a calendar invitation with a defined zone.</p><aside><p>Clockline uses the time-zone information available in your browser. Rules can change, so confirm critical travel or operational schedules with an authoritative local source.</p></aside><h2>For recurring meetings</h2><p>A meeting fixed to one city's local hour can shift for people elsewhere. Review recurring invites shortly before seasonal changes, especially when participants are in countries with different change dates.</p>'''),
-"utc-offsets":(
-"UTC offsets, without the jargon",
-"An offset tells you how far a local clock sits from UTC at one moment. A named time zone also carries the rules for other dates.",
-'''<h2>An offset describes one instant</h2><p>UTC+02:00 means a local clock is two hours ahead of Coordinated Universal Time at that moment. It does not tell you whether the same city will use UTC+02:00 all year.</p><h2>Use a city zone for future dates</h2><p>A named zone such as Europe/Berlin includes historical and seasonal rules. When planning for a future date, choose the city or its time zone instead of typing a fixed offset from memory.</p><h2>Check the local date</h2><p>A time-zone conversion may cross midnight. Include the weekday and date when you send a deadline or meeting time. “09:00 Tuesday in Tokyo” is clearer than “09:00” alone.</p><aside><p>For a future event, use the converter with the event's date. Today's offset may not apply then.</p></aside>'''),
-"remote-meetings":(
-"A short checklist for remote meetings",
-"Small details prevent most scheduling mistakes when a call crosses time zones.",
-'''<h2>Start with a date</h2><p>Choose the day in one city first. Then compare the same moment in each participant's city. The second local date might be different.</p><h2>Look for a shared window</h2><p>The meeting planner marks hours from 09:00 to 18:00 in both places. Treat that as a starting point; working patterns, breaks and holidays are personal.</p><h2>Send a calendar invitation</h2><p>Set a named time zone in the invitation. Write the date, time and city in the accompanying message so people can spot an unexpected conversion.</p><h2>Check again near a clock change</h2><p>For recurring meetings, compare the cities after seasonal time changes. A fixed local hour in one place can shift for everyone else.</p>''')
+guides=[
+    ("choose-format","Как выбрать формат для задачи","Таблица, документ, заметка или обмен данными: с чего начать."),
+    ("encoding","Почему текст открывается кракозябрами","Кодировки, UTF-8 и что проверить перед сохранением."),
+    ("csv-rules","CSV без сломанных столбцов","Разделители, кавычки и переносы строк в таблицах."),
+    ("verify-file","Как проверить файл по SHA-256","Когда полезна контрольная сумма и как сравнить два результата."),
+    ("safe-sharing","Подготовка файла к отправке","Имя, формат, размер и личные данные перед отправкой."),
+]
+tool_cards=''.join(f'<a class="card" href="/tools/{slug}/"><small>ИНСТРУМЕНТ / 0{i}</small><h3>{title}</h3><p>{desc}</p><span>Открыть →</span></a>' for i,(slug,title,desc) in enumerate(tools,1))
+format_links=''.join(f'<a href="/formats/{slug}/"><strong>.{slug}</strong><span>{desc}</span></a>' for slug,title,desc in formats)
+sample='''<div class="sample"><div class="sample-top"><span>пример / данные.json</span><span class="sample-dots"><i></i><i></i><i></i></span></div><pre>{
+  "проект": "каталог",
+  "файлы": [
+    "описание.md",
+    "таблица.csv"
+  ],
+  "версия": 2
+}</pre><div class="sample-foot">Текст, таблицы и документы — у каждого файла своя задача.</div></div>'''
+home=f'''<section class="hero"><div><span class="eyebrow">Справочник по цифровым файлам</span><h1>{headlines[variant]}</h1><p>Короткие объяснения форматов, рабочие инструменты и инструкции для повседневных задач. Всё можно открыть без регистрации.</p><div class="actions"><a class="btn" href="/tools/">Выбрать инструмент</a><a class="btn alt" href="/formats/">Изучить форматы</a></div></div>{sample}</section><section class="section"><div class="section-head"><div><span class="eyebrow">Практика</span><h2>Сначала решите задачу.</h2></div><p>Проверка данных и расчёты выполняются в браузере, без загрузки содержимого на наш сервер.</p></div><div class="cards">{tool_cards}</div></section><section class="section"><div class="section-head"><div><span class="eyebrow">Справочник</span><h2>Какой формат перед вами?</h2></div><p>Расширение помогает понять, чем открыть файл и какие свойства важно сохранить.</p></div><div class="links">{format_links}</div></section><section class="section"><div class="band"><div><span class="eyebrow" style="color:#d4e3dd">Начните с основ</span><h2>Формат подбирают под задачу.</h2><p>Посмотрите сравнение распространённых вариантов и выберите подходящий.</p></div><a class="btn" href="/guides/choose-format/">Читать статью</a></div><p style="margin-top:21px"><a href="/formats/{featured}/">Подробнее о .{featured} →</a></p></section>'''
+page("index.html","Файлы и форматы без лишней сложности","Справочник по форматам файлов и браузерные инструменты для текста, JSON, CSV и SHA-256.",home)
+page("tools/index.html","Инструменты для файлов","Браузерные инструменты для текста, JSON, CSV и проверки SHA-256.",intro("Инструменты","Полезное для работы с файлами","Четыре инструмента для типичных задач. Введённый текст и выбранные файлы обрабатываются на вашем устройстве.")+f'<div class="cards" style="padding-bottom:75px">{tool_cards}</div>',"tools")
+page("tools/text/index.html","Счётчик текста","Подсчёт слов, символов, строк и байтов UTF-8 в браузере.",intro("Инструменты","Счётчик текста","Вставьте текст и сразу увидите количество знаков, слов, строк и байтов в кодировке UTF-8.")+'''<section class="tool-layout"><div class="panel"><label for="text-input">Ваш текст</label><textarea id="text-input" placeholder="Напишите или вставьте текст"></textarea><div class="actions"><button class="btn alt" id="clear-text" type="button">Очистить</button></div></div><div class="panel"><h3>Результат</h3><div class="stat-grid"><div class="stat"><strong id="chars">0</strong><span>знаков</span></div><div class="stat"><strong id="words">0</strong><span>слов</span></div><div class="stat"><strong id="lines">0</strong><span>строк</span></div><div class="stat"><strong id="bytes">0</strong><span>байтов UTF-8</span></div></div><p class="feedback">Перенос строки считается частью текста.</p></div></section>''',"tools")
+page("tools/json/index.html","Проверка и форматирование JSON","Проверьте синтаксис JSON и приведите данные к читаемому виду.",intro("Инструменты","Проверка JSON","Вставьте JSON: инструмент найдёт синтаксическую ошибку или выровняет отступы для чтения.")+'''<section class="tool-layout"><div class="panel"><label for="json-input">Исходные данные</label><textarea id="json-input" spellcheck="false" placeholder='{"название":"пример","версия":2}'></textarea><div class="actions"><button class="btn" id="format-json" type="button">Проверить и оформить</button><button class="btn alt" id="copy-json" type="button">Копировать результат</button></div><p class="feedback" id="json-status" role="status" aria-live="polite"></p></div><div class="panel"><h3>Результат</h3><pre class="output" id="json-output"></pre><p class="feedback">JSON поддерживает строки, числа, массивы, объекты и логические значения.</p></div></section>''',"tools")
+page("tools/csv/index.html","Просмотр CSV","Посмотрите содержимое CSV-таблицы с кавычками и переносами строк.",intro("Инструменты","Просмотр CSV","Вставьте CSV с разделителем-запятой. Поля в кавычках, запятые внутри ячеек и переносы строк будут разобраны как таблица.")+'''<section class="tool-layout"><div class="panel"><label for="csv-input">Содержимое CSV</label><textarea id="csv-input" spellcheck="false" placeholder="имя,количество&#10;Книга,3&#10;Блокнот,5"></textarea><div class="actions"><button class="btn" id="show-csv" type="button">Показать таблицу</button></div><p class="feedback" id="csv-status" role="status" aria-live="polite"></p></div><div class="panel"><h3>Таблица</h3><div class="table-scroll" id="csv-table"><p class="feedback">Результат появится после разбора CSV.</p></div></div></section>''',"tools")
+page("tools/sha256/index.html","SHA-256 файла","Вычислите контрольную сумму файла прямо в браузере.",intro("Инструменты","SHA-256 файла","Выберите файл до 50 МБ. Браузер прочитает его локально и покажет контрольную сумму.")+'''<section class="tool-layout"><div class="panel"><label for="hash-input">Файл для проверки</label><input id="hash-input" type="file"><div class="actions"><button class="btn" id="hash-button" type="button">Вычислить SHA-256</button></div><p class="feedback" id="hash-status" role="status" aria-live="polite"></p></div><div class="panel"><h3>Контрольная сумма</h3><pre class="output" id="hash-result">Результат появится здесь.</pre><p class="feedback">Сравнивайте всю строку целиком с суммой из надёжного источника.</p></div></section>''',"tools")
+page("formats/index.html","Справочник форматов","Что хранят JSON, CSV, Markdown, PDF, TXT и ZIP и когда их использовать.",intro("Форматы","Шесть распространённых форматов","Откройте описание формата, чтобы понять его назначение, ограничения и подходящий инструмент.")+f'<div class="links" style="padding-bottom:75px">{format_links}</div>',"formats")
+format_details={
+"json":("Данные в виде объектов и списков","JSON удобен для передачи структурированных данных между программами. Он хранит текст, числа, логические значения, массивы и объекты.","Текстовый формат","Настройки, API, обмен данными","Проверка JSON",'''<h2>Как устроен JSON</h2><p>Объект заключают в фигурные скобки, массив — в квадратные. Названия полей и строки пишут в двойных кавычках. Комментарии и завершающие запятые в обычном JSON недопустимы.</p><h2>Когда подходит</h2><p>Используйте JSON, когда важно сохранить вложенную структуру: например, у записи есть автор, список тегов и параметры. Для простой таблицы CSV может быть удобнее.</p><aside><p>Если файл не открывается, сначала проверьте кавычки, запятые и кодировку UTF-8.</p></aside>''',"/tools/json/"),
+"csv":("Строки и столбцы в текстовом файле","CSV хранит табличные данные. Обычно первая строка содержит названия столбцов, а остальные — значения.","Текстовый формат","Экспорт таблиц, обмен списками","Просмотр CSV",'''<h2>Почему таблица может сдвинуться</h2><p>Запятая отделяет поля. Если сама ячейка содержит запятую или перенос строки, её заключают в двойные кавычки. Кавычку внутри ячейки записывают дважды.</p><h2>Что проверить при импорте</h2><p>Уточните разделитель и кодировку. Некоторые программы сохраняют CSV с точкой с запятой вместо запятой. Наш просмотрщик рассчитан на разделитель-запятую.</p><aside><p>CSV не хранит формулы, оформление и несколько листов книги.</p></aside>''',"/tools/csv/"),
+"markdown":("Заметки с простой разметкой","Markdown — обычный текст с короткими знаками для заголовков, списков, ссылок и выделений.","Текстовый формат","Документация, README, заметки","Счётчик текста",'''<h2>Чем удобен Markdown</h2><p>Файл можно читать даже без специального редактора. Знак решётки перед строкой обозначает заголовок, звёздочки часто используют для выделения, а дефис — для пункта списка.</p><h2>Где возможны различия</h2><p>Программы поддерживают разные расширения Markdown. Таблицы, примечания и дополнительные элементы могут выглядеть по-разному в разных редакторах.</p><aside><p>Если важен одинаковый вид документа на каждом устройстве, подготовьте PDF.</p></aside>''',"/tools/text/"),
+"pdf":("Документ с предсказуемым видом","PDF предназначен для передачи готового документа с сохранением расположения текста и изображений.","Документ","Инструкции, договоры, печать","SHA-256 файла",'''<h2>Когда подходит PDF</h2><p>Используйте PDF, когда получатель должен видеть документ примерно в том же виде, что и вы. Для совместного редактирования исходный текстовый файл часто удобнее.</p><h2>Перед отправкой</h2><p>Проверьте читаемость на телефоне, размер файла и наличие лишних страниц. Скан в PDF может выглядеть как текст, но при этом содержать только изображения страниц.</p><aside><p>Не считайте PDF автоматически безопасным: открывайте вложения из неизвестных источников осторожно.</p></aside>''',"/tools/sha256/"),
+"txt":("Простой текст без оформления","TXT содержит текстовые символы без шрифтов, таблиц и сложной вёрстки.","Текстовый формат","Заметки, журналы, инструкции","Счётчик текста",'''<h2>Преимущество простого текста</h2><p>TXT открывается почти везде и легко переносится между программами. Формат подходит для заметок, логов и коротких инструкций, где оформление не важно.</p><h2>Важна кодировка</h2><p>Расширение .txt не говорит, в какой кодировке записан файл. Если вместо букв видны неправильные символы, попробуйте открыть его как UTF-8 или уточнить исходную кодировку.</p><aside><p>Для структурированных данных лучше выбрать JSON или CSV.</p></aside>''',"/tools/text/"),
+"zip":("Несколько файлов в одном архиве","ZIP объединяет файлы и папки в один архив; при подходящих данных он также уменьшает размер.","Архив","Передача наборов файлов, резервные копии","SHA-256 файла",'''<h2>Что делает архив</h2><p>ZIP хранит имена файлов и структуру папок. Он удобен, когда нужно отправить несколько элементов одним вложением или сохранить структуру каталога.</p><h2>Чего ZIP не гарантирует</h2><p>Сжатие может почти не уменьшить фотографии, видео и уже сжатые документы. Архив сам по себе не подтверждает происхождение файлов и не заменяет резервную копию в другом месте.</p><aside><p>После загрузки архива можно сравнить его SHA-256 с опубликованной контрольной суммой.</p></aside>''',"/tools/sha256/"),
 }
-for slug,(title,summary,body) in articles.items():
-    main = intro("Guides",title,summary)+f'<article class="prose">{body}<p><a class="link" href="/guides/">← All guides</a></p></article>'
-    page(f"guides/{slug}/index.html",title,summary,main,"guides")
-
-city_data = [
-    ("berlin","Europe/Berlin","Berlin","Germany","Berlin follows Central European local time, with seasonal clock changes. A fixed offset is therefore not a reliable way to describe every future date.","Europe/London","London"),
-    ("warsaw","Europe/Warsaw","Warsaw","Poland","Warsaw uses the same regional clock pattern as many central European cities. Check the date when comparing it with places outside Europe.","Asia/Tokyo","Tokyo"),
-    ("london","Europe/London","London","United Kingdom","London's local clock changes seasonally. Its relationship to another city can shift when that city changes clocks on a different day.","America/New_York","New York"),
-    ("new-york","America/New_York","New York","United States","New York observes seasonal clock changes. The gap to European cities can briefly differ around changeover dates.","Europe/London","London"),
-    ("tokyo","Asia/Tokyo","Tokyo","Japan","Tokyo keeps the same local clock through the year. The difference from cities with seasonal clock changes still varies.","Europe/Warsaw","Warsaw"),
-    ("dubai","Asia/Dubai","Dubai","United Arab Emirates","Dubai keeps the same local clock through the year. Compare it by date with cities whose clocks change seasonally.","Europe/London","London"),
-]
-city_links = ''.join(f'<a href="/cities/{slug}/"><strong>{name}</strong><span>{country} · View local time and planning notes</span></a>' for slug,zone,name,country,summary,other,other_name in city_data)
-page("cities/index.html","City time guides","Local clocks and practical planning notes for six cities.",intro("Cities","A closer look at local time","Open a city to see its current local time and the details that matter when planning across places.")+f'<div class="list">{city_links}</div>',"cities")
-for slug,zone,name,country,summary,other,other_name in city_data:
-    main = intro("Cities",f"Time in {name}",summary)+f'''<section class="workspace"><div class="panel dark"><span class="small">{escape(country.upper())} / LOCAL TIME</span><strong class="result-number" data-clock="{escape(zone)}">--:--</strong><p data-date="{escape(zone)}">Loading local date</p></div><div class="panel"><h3>Compare with {escape(other_name)}</h3><p>The same moment is currently <strong data-clock="{escape(other)}">--:--</strong> in {escape(other_name)}.</p><p class="small">For a future date, use the converter. Seasonal rules may change the difference between the cities.</p><a class="btn" href="/convert/">Convert a time</a></div></section><section class="section"><h2>Planning notes</h2><div class="facts"><div class="fact"><strong>Check the date</strong><span>One city may already be on the next calendar day.</span></div><div class="fact"><strong>Use a named zone</strong><span>It is more reliable for future events than a fixed UTC offset.</span></div><div class="fact"><strong>Confirm availability</strong><span>Local working hours and holidays vary by person and place.</span></div></div><a class="link" href="/cities/">← All cities</a></section>'''
-    page(f"cities/{slug}/index.html",f"Time in {name}",f"Current local time in {name} and practical time-zone planning notes.",main,"cities")
-
-about = intro("About","Time tools that get to the point","Clockline is a small collection of browser-based tools for converting times, comparing cities and counting dates.")+'''<article class="prose"><h2>What you can do here</h2><p>Convert a future local time, compare two cities hour by hour, check current clocks and count calendar days. The guides explain where time-zone conversions tend to go wrong.</p><h2>How the clocks work</h2><p>The interactive tools use your browser's built-in international time-zone data. Clockline does not operate a time service or publish its own time-zone rules. If a local rule changes recently, your browser may need an update.</p><p><a class="link" href="/convert/">Open the converter →</a></p></article>'''
-page("about/index.html","About","About Clockline's browser-based time and date tools.",about)
-privacy = intro("Privacy","A simple site with local tools","Clockline's interactive calculations run in your browser.")+'''<article class="prose"><h2>Information you enter</h2><p>Dates, times and city choices are processed in your browser to show a result. The site does not ask for an account or send those inputs to a Clockline application server.</p><h2>Site delivery</h2><p>Like other websites, the web server delivering these pages may record request details such as an IP address and requested path in its access logs. The retention of those logs depends on the server operator.</p><h2>Third-party content</h2><p>The site loads its styles and scripts from the same domain. It has no embedded third-party analytics or advertising in these pages.</p></article>'''
-page("privacy/index.html","Privacy","How Clockline handles browser calculations and site delivery.",privacy)
-page("404.html","Page not found","The requested Clockline page could not be found.",intro("404","That page is not here","The address may have changed, or there may be a typo.")+'<div class="actions" style="padding-bottom:80px"><a class="btn" href="/">Back to the home page</a><a class="btn alt" href="/guides/">Browse the guides</a></div>')
-
-(root / "assets/favicon.svg").write_text(f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="15" fill="{ink}"/><circle cx="32" cy="32" r="17" fill="none" stroke="{background}" stroke-width="5"/><path d="M32 20v13l9 7" fill="none" stroke="{accent}" stroke-width="5" stroke-linecap="round"/></svg>\n')
-(root / "robots.txt").write_text("User-agent: *\nAllow: /\nSitemap: https://" + domain + "/sitemap.xml\n")
-paths = ["/","/convert/","/meeting/","/world-clock/","/date-gap/","/guides/"] + ["/guides/"+s+"/" for s,_,_ in guides] + ["/cities/"] + ["/cities/"+c[0]+"/" for c in city_data] + ["/about/","/privacy/"]
-(root / "sitemap.xml").write_text('<?xml version="1.0" encoding="utf-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + ''.join('<url><loc>https://'+domain+p+'</loc></url>' for p in paths) + '</urlset>\n')
-(root / "site.webmanifest").write_text('{"name":"Clockline","short_name":"Clockline","start_url":"/","display":"browser","background_color":"'+background+'","theme_color":"'+background+'","icons":[{"src":"/assets/favicon.svg","sizes":"any","type":"image/svg+xml"}]}\n')
-print(f"Clockline: wrote {len(list(root.rglob('*')))} files and directories for {domain}")
+for slug,title,desc in formats:
+    subtitle,summary,kind,use,tool,article,link=format_details[slug]
+    body=intro("Форматы",title,summary)+f'''<div class="format-facts"><div><strong>Тип</strong><span>{kind}</span></div><div><strong>Обычно используют</strong><span>{use}</span></div><div><strong>Связанный инструмент</strong><span><a href="{link}">{tool}</a></span></div></div><article class="prose">{article}<p><a href="/formats/">← Все форматы</a></p></article>'''
+    page(f"formats/{slug}/index.html",f"Формат {title}",summary,body,"formats")
+guide_links=''.join(f'<a href="/guides/{slug}/"><strong>{title}</strong><span>{summary}</span></a>' for slug,title,summary in guides)
+page("guides/index.html","Статьи о файлах","Практические объяснения о форматах, кодировках, CSV, SHA-256 и отправке файлов.",intro("Статьи","Пять коротких объяснений","Разберитесь с форматом и подготовьте файл к открытию, передаче или проверке.")+f'<div class="links" style="padding-bottom:75px">{guide_links}</div>',"guides")
+guide_articles={
+"choose-format":'''<h2>Данные или готовый документ?</h2><p>Для списка строк и столбцов подойдёт CSV. Для вложенных данных, которыми обмениваются программы, удобнее JSON. Если важен внешний вид готового документа, используйте PDF.</p><h2>Нужно будет редактировать?</h2><p>Простой текст и Markdown сохраняют содержимое доступным для большинства редакторов. PDF удобен для чтения и печати, но править исходный материал в нём обычно сложнее.</p><h2>Нужно передать несколько файлов?</h2><p>ZIP соберёт их в один архив и сохранит папки. После создания проверьте, что внутри нет лишних файлов и личных данных.</p><aside><p>Расширение помогает выбрать программу, но окончательно назначение файла определяет его содержимое.</p></aside>''',
+"encoding":'''<h2>Что такое кодировка</h2><p>Кодировка связывает символы с байтами файла. Если программа читает файл не в той кодировке, вместо привычных букв могут появиться неправильные символы.</p><h2>С чего начать</h2><p>Проверьте, в какой кодировке файл был сохранён, и попробуйте открыть его как UTF-8. Не сохраняйте повреждённый вид поверх исходного файла, пока не убедитесь, что текст отображается правильно.</p><h2>При обмене файлами</h2><p>Для новых текстовых файлов часто подходит UTF-8. Если система-получатель ожидает другую кодировку, укажите её при экспорте и сообщите получателю.</p><aside><p>Смена расширения .txt на .csv не меняет кодировку и не исправляет содержимое.</p></aside>''',
+"csv-rules":'''<h2>Одна строка — одна запись</h2><p>Чаще всего первая строка CSV содержит заголовки столбцов. Следующие строки содержат значения в том же порядке. Разное число столбцов обычно означает ошибку в данных или неверный разделитель.</p><h2>Кавычки защищают ячейку</h2><p>Если значение содержит запятую, перенос строки или кавычку, заключите поле в двойные кавычки. Внутреннюю двойную кавычку повторите дважды.</p><h2>Разделитель может отличаться</h2><p>Не все программы используют запятую: некоторые экспортируют таблицы с точкой с запятой. Перед импортом проверьте настройки экспорта и выбранный разделитель.</p><aside><p>Просмотрщик на этом сайте принимает CSV с запятой в качестве разделителя.</p></aside>''',
+"verify-file":'''<h2>Что показывает SHA-256</h2><p>SHA-256 превращает содержимое файла в строку фиксированной длины. Даже небольшое изменение обычно приводит к другой строке. Поэтому сумму удобно использовать для проверки целостности загрузки.</p><h2>Как сравнивать</h2><p>Получите контрольную сумму файла и сравните её целиком с суммой, опубликованной надёжным источником. Совпадение подтверждает, что у вас те же байты, но не доказывает добросовестность самого источника.</p><h2>Если суммы не совпали</h2><p>Сначала проверьте, что сравниваете один и тот же файл и алгоритм SHA-256. Затем скачайте файл заново из исходного источника.</p><aside><p>Наш инструмент вычисляет сумму в браузере и не отправляет выбранный файл на сервер.</p></aside>''',
+"safe-sharing":'''<h2>Проверьте имя и расширение</h2><p>Название должно объяснять содержимое без необходимости открывать файл. Убедитесь, что расширение соответствует формату, в котором он действительно сохранён.</p><h2>Посмотрите внутрь</h2><p>Перед отправкой проверьте лишние страницы, скрытые столбцы, комментарии и личные данные. Если отправляете ZIP, откройте архив и проверьте список вложений.</p><h2>Учитывайте получателя</h2><p>Для просмотра готового документа часто подходит PDF. Для редактирования может потребоваться исходный файл. Уточните, сможет ли получатель открыть выбранный формат.</p><aside><p>Если файл важный, сохраните исходную копию перед изменением или конвертацией.</p></aside>'''
+}
+for slug,title,summary in guides:
+    body=intro("Статьи",title,summary)+f'<article class="prose">{guide_articles[slug]}<p><a href="/guides/">← Все статьи</a></p></article>'
+    page(f"guides/{slug}/index.html",title,summary,body,"guides")
+page("about/index.html","О проекте","Зачем существует сайт «Форматы» и как работают его инструменты.",intro("О проекте","Понятная справка вместо догадок","«Форматы» — небольшой справочник и набор инструментов для повседневной работы с цифровыми файлами.")+'''<article class="prose"><h2>Для чего он нужен</h2><p>Сайт помогает разобраться, что хранит распространённый формат, чем открыть файл и как проверить данные перед отправкой. Статьи написаны для обычных задач, без необходимости изучать спецификации целиком.</p><h2>Как работают инструменты</h2><p>Подсчёт текста, разбор JSON и CSV и вычисление SHA-256 выполняются в вашем браузере. Сайт не требует аккаунта. Для важных файлов сохраняйте исходную копию и сверяйте результат с надёжным источником.</p><p><a href="/tools/">Перейти к инструментам →</a></p></article>''',"about")
+page("privacy/index.html","Конфиденциальность","Как сайт «Форматы» обрабатывает введённые данные и файлы.",intro("Конфиденциальность","Ваши файлы остаются у вас","Инструменты выполняют вычисления на устройстве, с которого вы открыли сайт.")+'''<article class="prose"><h2>Введённые данные</h2><p>Текст, JSON и CSV обрабатываются JavaScript-кодом в браузере. При вычислении SHA-256 выбранный файл читается браузером локально. Содержимое не передаётся в приложение на сервере.</p><h2>Доставка страниц</h2><p>Веб-сервер может записывать технические сведения о запросе, например IP-адрес и путь страницы. Срок хранения таких журналов зависит от настройки сервера.</p><h2>Сторонние ресурсы</h2><p>Шрифты, стили и скрипты загружаются с этого же домена. В этих страницах нет встроенной сторонней аналитики или рекламы.</p></article>''')
+page("404.html","Страница не найдена","Запрошенная страница справочника не найдена.",intro("404","Такой страницы нет","Проверьте адрес или вернитесь к справочнику.")+'<div class="actions" style="padding-bottom:80px"><a class="btn" href="/">На главную</a><a class="btn alt" href="/formats/">Открыть форматы</a></div>')
+(root/"assets/favicon.svg").write_text(f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="{ink}"/><path d="M19 16h19l8 8v24H19z" fill="none" stroke="{background}" stroke-width="4" stroke-linejoin="round"/><path d="M38 16v10h8M25 35h14M25 42h11" fill="none" stroke="{accent}" stroke-width="4" stroke-linecap="round"/></svg>\n')
+(root/"robots.txt").write_text("User-agent: *\nAllow: /\nSitemap: https://"+domain+"/sitemap.xml\n")
+paths=["/","/tools/"]+["/tools/"+s+"/" for s,_,_ in tools]+["/formats/"]+["/formats/"+s+"/" for s,_,_ in formats]+["/guides/"]+["/guides/"+s+"/" for s,_,_ in guides]+["/about/","/privacy/"]
+(root/"sitemap.xml").write_text('<?xml version="1.0" encoding="utf-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'+''.join('<url><loc>https://'+domain+p+'</loc></url>' for p in paths)+'</urlset>\n')
+(root/"site.webmanifest").write_text(json.dumps({"name":"Форматы","short_name":"Форматы","start_url":"/","display":"browser","background_color":background,"theme_color":background,"icons":[{"src":"/assets/favicon.svg","sizes":"any","type":"image/svg+xml"}]},ensure_ascii=False)+"\n")
+print(f"Форматы: создано {len(list(root.rglob('*.html')))} страниц для {domain}")
 PY
+  )
+  previous=""
+  if [[ -d "$SITE_DIR" ]]; then
+    previous="$REMNA_DIR/selfsteal/site-backup-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+    mv "$SITE_DIR" "$previous"
+  fi
+  if ! mv "$staged" "$SITE_DIR"; then
+    [[ -z "$previous" ]] || mv "$previous" "$SITE_DIR"
+    die "Не удалось заменить файлы сайта"
+  fi
   printf '%s\n' "$SITE_DOMAIN" > "$REMNA_DIR/selfsteal/domain"
 }
 
