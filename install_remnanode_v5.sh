@@ -91,6 +91,48 @@ valid_ipv4() {
   done
 }
 
+# Проверяем DNS против всех IPv4 ноды, а не только IP исходящего соединения.
+# SELFSTEAL_PUBLIC_IP нужен для дополнительного публичного IP за 1:1 NAT,
+# который провайдер не назначает непосредственно сетевому интерфейсу.
+collect_node_ipv4() {
+  local outgoing_ip=""
+  if command -v ip >/dev/null 2>&1; then
+    ip -o -4 addr show scope global | awk '{split($4, parts, "/"); print parts[1]}'
+  fi
+  if [[ -n "${SELFSTEAL_PUBLIC_IP:-}" ]]; then
+    printf '%s\n' "$SELFSTEAL_PUBLIC_IP"
+  fi
+  # Исходящий IP полезен, если у сервера NAT. Ошибка внешнего сервиса не критична.
+  outgoing_ip="$(curl -4fsS --noproxy '*' --max-time 8 https://api.ipify.org 2>/dev/null || true)"
+  if valid_ipv4 "$outgoing_ip"; then
+    printf '%s\n' "$outgoing_ip"
+  fi
+}
+
+check_domain_dns() {
+  local domain="$1" dns_ip local_ip match=""
+  local -a dns_ips=() server_ips=()
+  if [[ -n "${SELFSTEAL_PUBLIC_IP:-}" ]]; then
+    valid_ipv4 "$SELFSTEAL_PUBLIC_IP" || die "Некорректный SELFSTEAL_PUBLIC_IP: $SELFSTEAL_PUBLIC_IP"
+  fi
+  mapfile -t dns_ips < <(dig +short A "$domain" | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ {print}' | sort -u)
+  (( ${#dns_ips[@]} > 0 )) || die "Нет A-записи для $domain"
+  mapfile -t server_ips < <(collect_node_ipv4 | sort -u)
+  (( ${#server_ips[@]} > 0 )) || die "Не удалось определить IPv4 ноды (ip addr и api.ipify.org). Укажите SELFSTEAL_PUBLIC_IP."
+  for dns_ip in "${dns_ips[@]}"; do
+    for local_ip in "${server_ips[@]}"; do
+      if [[ "$dns_ip" == "$local_ip" ]]; then
+        match="$dns_ip"
+        break 2
+      fi
+    done
+  done
+  if [[ -z "$match" ]]; then
+    die "A-запись $domain ($(IFS=', '; echo "${dns_ips[*]}")) не совпадает ни с одним IPv4 ноды ($(IFS=', '; echo "${server_ips[*]}")). Если IP выдан провайдером через 1:1 NAT, задайте SELFSTEAL_PUBLIC_IP вручную."
+  fi
+  echo "DNS $domain: $match — один из IPv4 ноды, проверка пройдена"
+}
+
 configure_panel_firewall() {
   local panel_ip="$PANEL_SOURCE_IP" resolved_ips
   if [[ -z "$panel_ip" ]]; then
@@ -529,18 +571,11 @@ if (( ENABLE_SITE )); then
     existing_domain="$(cat "$REMNA_DIR/selfsteal/domain")"
   fi
   [[ -z "$existing_domain" || "$existing_domain" == "$SITE_DOMAIN" ]] || die "Установлен другой домен self-steal: $existing_domain"
-  site_ips="$(dig +short A "$SITE_DOMAIN" | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/')"
-  [[ -n "$site_ips" ]] || die "Нет A-записи для $SITE_DOMAIN"
-  public_ip="${SELFSTEAL_PUBLIC_IP:-$(curl -4fsS --noproxy '*' --max-time 8 https://api.ipify.org)}"
-  [[ "$public_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Не удалось определить публичный IPv4 ноды"
-  printf '%s\n' "$site_ips" | grep -Fxq "$public_ip" || die "A-запись $SITE_DOMAIN не указывает на IPv4 этой ноды ($public_ip). Нужна прямая DNS-запись без проксирования."
+  check_domain_dns "$SITE_DOMAIN"
 fi
 
 if (( ENABLE_HY2 )); then
-  hy2_ips="$(dig +short A "$HY2_DOMAIN" | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/')"
-  [[ -n "$hy2_ips" ]] || die "Нет A-записи для $HY2_DOMAIN"
-  public_ip="${public_ip:-${SELFSTEAL_PUBLIC_IP:-$(curl -4fsS --noproxy '*' --max-time 8 https://api.ipify.org)}}"
-  printf '%s\n' "$hy2_ips" | grep -Fxq "$public_ip" || die "A-запись $HY2_DOMAIN не указывает на IPv4 этой ноды ($public_ip). Нужна прямая DNS-запись без проксирования."
+  check_domain_dns "$HY2_DOMAIN"
 fi
 
 mkdir -p "$REMNA_DIR"
