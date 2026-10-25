@@ -660,6 +660,15 @@ if (( ENABLE_HY2 )); then
     echo "Hysteria2: общий домен $HY2_DOMAIN, копия сертификата /etc/letsencrypt/hysteria2/$HY2_DOMAIN/fullchain.pem"
     echo "Hysteria2: приватный ключ /etc/letsencrypt/hysteria2/$HY2_DOMAIN/privkey.pem"
     echo "Сертификат Hysteria2 будет повторно копироваться при продлении Certbot."
+    echo "Hysteria2: для ответа тем же сайтом по HTTP/3 добавьте в streamSettings.hysteriaSettings этого inbound:"
+    cat <<EOF
+"masquerade": {
+  "type": "proxy",
+  "url": "https://127.0.0.1:$SITE_PORT",
+  "rewriteHost": false,
+  "insecure": true
+}
+EOF
   else
     echo "Hysteria2: отдельный домен $HY2_DOMAIN, сертификат /etc/letsencrypt/live/$HY2_DOMAIN/fullchain.pem"
   fi
