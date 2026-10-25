@@ -54,21 +54,29 @@ validate_domain() {
   done
 }
 
-open_http_firewall() {
-  local configured=0
-  if command -v ufw >/dev/null 2>&1; then
-    ufw allow 80/tcp >/dev/null || die "Не удалось разрешить TCP 80 в UFW"
-    echo "UFW: TCP 80 разрешён"
-    configured=1
+configure_public_firewall() {
+  local -a ports=(443/tcp)
+  local port zone zones
+  if (( ENABLE_SITE || ENABLE_HY2 )); then ports+=(80/tcp); fi
+  if (( ENABLE_HY2 )); then ports+=(443/udp); fi
+
+  if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; then
+    for port in "${ports[@]}"; do
+      ufw allow "$port" >/dev/null || die "Не удалось разрешить $port в UFW"
+    done
+    echo "UFW: открыты ${ports[*]}"
   fi
+
   if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
-    firewall-cmd --permanent --add-port=80/tcp >/dev/null || die "Не удалось разрешить TCP 80 в firewalld"
-    firewall-cmd --reload >/dev/null || die "Не удалось применить правило firewalld для TCP 80"
-    echo "firewalld: TCP 80 разрешён"
-    configured=1
-  fi
-  if (( ! configured )); then
-    echo "UFW/firewalld не активны; проверьте внешний firewall провайдера для TCP 80"
+    zones="$(firewall-cmd --get-active-zones | awk '/^[^[:space:]]/ {print $1}')"
+    [[ -n "$zones" ]] || zones="$(firewall-cmd --get-default-zone)"
+    for zone in $zones; do
+      for port in "${ports[@]}"; do
+        firewall-cmd --zone="$zone" --add-port="$port" >/dev/null || die "Не удалось разрешить $port в firewalld"
+        firewall-cmd --permanent --zone="$zone" --add-port="$port" >/dev/null || die "Не удалось сохранить $port в firewalld"
+      done
+    done
+    echo "firewalld: открыты ${ports[*]}"
   fi
 }
 
@@ -285,6 +293,8 @@ if ask_yes_no "Нужна Hysteria2?"; then
   fi
 fi
 
+configure_public_firewall
+
 if (( ENABLE_SITE || ENABLE_HY2 )); then
   if ! command -v certbot >/dev/null || ! command -v dig >/dev/null || { (( ENABLE_SITE )) && ! command -v nginx >/dev/null; }; then
     apt-get update
@@ -292,7 +302,6 @@ if (( ENABLE_SITE || ENABLE_HY2 )); then
     if (( ENABLE_SITE )); then packages+=(nginx); fi
     DEBIAN_FRONTEND=noninteractive apt-get install -y "${packages[@]}"
   fi
-  open_http_firewall
 fi
 
 if (( ENABLE_SITE )); then
