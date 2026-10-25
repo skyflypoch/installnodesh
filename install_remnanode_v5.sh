@@ -13,6 +13,7 @@ SITE_DIR="$REMNA_DIR/selfsteal/site"
 ACME_DIR="$REMNA_DIR/selfsteal/acme"
 NGINX_CONF="/etc/nginx/conf.d/remnanode-selfsteal.conf"
 HY2_ACME_CONF="/etc/nginx/conf.d/remnanode-hysteria-acme.conf"
+SHARED_HY2_HOOK="/etc/letsencrypt/renewal-hooks/deploy/00-remnanode-shared-hy2-cert.sh"
 RENEW_HOOK="/etc/letsencrypt/renewal-hooks/deploy/restart-remnanode.sh"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -373,6 +374,18 @@ EOF
   systemctl reload nginx
 }
 
+# Для одинаковых доменов копируем уже выданный сертификат self-steal.
+# Не пишем в /etc/letsencrypt/live: этот каталог управляется Certbot.
+copy_shared_hy2_cert() {
+  local source_dir="/etc/letsencrypt/live/$SITE_DOMAIN"
+  local target_dir="/etc/letsencrypt/hysteria2/$HY2_DOMAIN"
+  [[ -s "$source_dir/fullchain.pem" && -s "$source_dir/privkey.pem" ]] || die "Отсутствует сертификат или ключ self-steal для $SITE_DOMAIN"
+  install -d -m 700 "$target_dir"
+  install -m 644 "$source_dir/fullchain.pem" "$target_dir/fullchain.pem"
+  install -m 600 "$source_dir/privkey.pem" "$target_dir/privkey.pem"
+  echo "Hysteria2: скопирован сертификат self-steal в $target_dir"
+}
+
 [[ $EUID -eq 0 ]] || die "Run as root"
 if [[ "${1:-}" == "--refresh-site" ]]; then
   [[ $# -eq 1 ]] || die "Использование: $0 --refresh-site"
@@ -429,7 +442,12 @@ if ask_yes_no "Нужна Hysteria2?"; then
   HY2_DOMAIN="$(read_required 'Домен Hysteria2: ')"
   HY2_DOMAIN="$(printf '%s' "$HY2_DOMAIN" | tr '[:upper:]' '[:lower:]')"
   validate_domain "$HY2_DOMAIN"
-  [[ "$HY2_DOMAIN" != "$SITE_DOMAIN" ]] || die "Домен Hysteria2 должен отличаться от домена сайта REALITY"
+fi
+
+SHARED_DOMAIN=0
+if (( ENABLE_SITE && ENABLE_HY2 )) && [[ "$SITE_DOMAIN" == "$HY2_DOMAIN" ]]; then
+  SHARED_DOMAIN=1
+  echo "REALITY self-steal и Hysteria2 используют $SITE_DOMAIN: будет один выпуск сертификата с отдельной копией для Hysteria2."
 fi
 
 configure_public_firewall
@@ -468,8 +486,12 @@ mkdir -p "$REMNA_DIR"
 if (( ENABLE_SITE )); then
   install -d -m 755 "$REMNA_DIR/selfsteal" "$SITE_DIR" "$ACME_DIR"
   write_site
+  if (( SHARED_DOMAIN )); then
+    # Нельзя объявлять два server_name на одном порту 80 для одного домена.
+    rm -f "$HY2_ACME_CONF"
+  fi
   start_http_site
-  if (( ENABLE_HY2 )); then start_hy2_acme; fi
+  if (( ENABLE_HY2 && ! SHARED_DOMAIN )); then start_hy2_acme; fi
   if [[ -f "/etc/letsencrypt/live/$SITE_DOMAIN/fullchain.pem" ]]; then
     if [[ ! -f "/etc/letsencrypt/renewal/$SITE_DOMAIN.conf" ]] || ! grep -Eq '^authenticator[[:space:]]*=[[:space:]]*webroot$' "/etc/letsencrypt/renewal/$SITE_DOMAIN.conf"; then
       certbot renew --cert-name "$SITE_DOMAIN" --webroot --webroot-path "$ACME_DIR" --dry-run
@@ -517,7 +539,11 @@ fi
 configure_panel_firewall
 
 if (( ENABLE_HY2 )); then
-  if [[ ! -f "/etc/letsencrypt/live/$HY2_DOMAIN/fullchain.pem" ]]; then
+  if (( SHARED_DOMAIN )); then
+    # Certbot уже выдал/нашёл сертификат в блоке ENABLE_SITE.
+    # Второй сертификат НЕ запрашиваем, а копируем сертификат и ключ.
+    copy_shared_hy2_cert
+  elif [[ ! -f "/etc/letsencrypt/live/$HY2_DOMAIN/fullchain.pem" ]]; then
     if (( ENABLE_SITE )); then
       certbot certonly --webroot -w "$ACME_DIR" -d "$HY2_DOMAIN" --cert-name "$HY2_DOMAIN" --non-interactive --agree-tos -m "$CERT_EMAIL"
     else
@@ -528,6 +554,22 @@ fi
 
 if (( ENABLE_SITE || ENABLE_HY2 )); then
   mkdir -p /etc/letsencrypt/renewal-hooks/deploy
+  if (( SHARED_DOMAIN )); then
+    # Certbot вызывает этот deploy-hook после успешного продления.
+    # Имя начинается с 00-, чтобы копирование выполнялось раньше рестарта ноды.
+    cat > "$SHARED_HY2_HOOK" <<EOF
+#!/bin/sh
+set -eu
+[ "\${RENEWED_LINEAGE:-}" = "/etc/letsencrypt/live/$SITE_DOMAIN" ] || exit 0
+install -d -m 700 "/etc/letsencrypt/hysteria2/$HY2_DOMAIN"
+install -m 644 "/etc/letsencrypt/live/$SITE_DOMAIN/fullchain.pem" "/etc/letsencrypt/hysteria2/$HY2_DOMAIN/fullchain.pem"
+install -m 600 "/etc/letsencrypt/live/$SITE_DOMAIN/privkey.pem" "/etc/letsencrypt/hysteria2/$HY2_DOMAIN/privkey.pem"
+EOF
+    chmod 700 "$SHARED_HY2_HOOK"
+  else
+    # Убираем ранее созданный хук при переключении на разные домены.
+    rm -f "$SHARED_HY2_HOOK"
+  fi
   if [[ ! -f "$RENEW_HOOK" ]]; then
     printf '#!/bin/sh\n' > "$RENEW_HOOK"
   fi
@@ -552,5 +594,11 @@ if (( ENABLE_SITE )); then
   echo "В Remnawave укажите этот домен в SNI клиентского профиля и target в конфигурации REALITY."
 fi
 if (( ENABLE_HY2 )); then
-  echo "Hysteria2: отдельный домен $HY2_DOMAIN, сертификат /etc/letsencrypt/live/$HY2_DOMAIN/fullchain.pem"
+  if (( SHARED_DOMAIN )); then
+    echo "Hysteria2: общий домен $HY2_DOMAIN, копия сертификата /etc/letsencrypt/hysteria2/$HY2_DOMAIN/fullchain.pem"
+    echo "Hysteria2: приватный ключ /etc/letsencrypt/hysteria2/$HY2_DOMAIN/privkey.pem"
+    echo "Сертификат Hysteria2 будет повторно копироваться при продлении Certbot."
+  else
+    echo "Hysteria2: отдельный домен $HY2_DOMAIN, сертификат /etc/letsencrypt/live/$HY2_DOMAIN/fullchain.pem"
+  fi
 fi
