@@ -1332,6 +1332,7 @@ install_cf_helper() {
 import ipaddress
 import json
 import os
+import socket
 import sys
 import urllib.error
 import urllib.parse
@@ -1340,6 +1341,68 @@ import urllib.request
 API = os.environ.get("CF_API_BASE", "https://api.cloudflare.com/client/v4")
 TOKEN = os.environ.get("CF_API_TOKEN", "")
 TTL = 60
+PANEL_API = os.environ.get("NODE_DNS_API", "https://app.willvpn.space/api/node-installer/dns")
+
+
+def node_key():
+    key = os.environ.get("SECRET_KEY", "").strip()
+    if not key:
+        try:
+            for line in open("/opt/remnanode/.env"):
+                if line.startswith("SECRET_KEY="):
+                    key = line.split("=", 1)[1].strip()
+        except OSError:
+            pass
+    if not key:
+        die("нет SECRET_KEY ноды")
+    return key
+
+
+def panel(payload, family=socket.AF_INET):
+    # в панель идём нужным семейством адресов: запись получает тот IP, с которого пришёл запрос
+    original = socket.getaddrinfo
+    socket.getaddrinfo = lambda *a, **k: [r for r in original(*a, **k) if r[0] == family]
+    try:
+        request = urllib.request.Request(PANEL_API, method="POST", data=json.dumps(dict(payload, secret_key=node_key())).encode(),
+                                         headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(request, timeout=40) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as error:
+        try:
+            detail = json.load(error).get("detail")
+        except Exception:
+            detail = f"HTTP {error.code}"
+        print(f"Панель: {detail}", file=sys.stderr)
+        sys.exit(2 if error.code == 503 else 1)
+    except Exception as error:
+        if family == socket.AF_INET6:
+            return None
+        die(f"панель недоступна: {error}")
+    finally:
+        socket.getaddrinfo = original
+
+
+def panel_main(argv):
+    command = argv[1]
+    if command == "check":
+        result = panel({"action": "check"})
+        print(f"Панель: ключ ноды принят, внешний IP {result['ip']}")
+        return
+    if command in {"plan", "set"} and len(argv) < 3:
+        die("не указан домен")
+    if command == "plan":
+        for line in panel({"action": "plan", "domain": argv[2]}).get("records", []):
+            print(line)
+        return
+    names = [argv[2]] if command == "set" else os.environ.get("CF_DOMAINS", "").split()
+    args = argv[3:]
+    for name in names:
+        result = panel({"action": "set", "domain": name, "move_old": command == "sync" or "--move-old" in args, "drop_ipv6": "--drop-ipv6" in args})
+        print("\n".join(result["changes"]))
+        if command == "sync" or "--ipv6" in args:
+            result6 = panel({"action": "set", "domain": name}, socket.AF_INET6)
+            if result6:
+                print("\n".join(result6["changes"]))
 
 
 def die(message):
@@ -1452,10 +1515,11 @@ def ensure(name, ipv4, ipv6, drop_v6, move=False):
 
 
 def main(argv):
-    if not TOKEN:
-        die("не задан CF_API_TOKEN")
     if len(argv) < 2 or argv[1] not in {"check", "plan", "set", "sync"}:
         die("использование: check | plan <домен> --ipv4 IP | set <домен> --ipv4 IP [--ipv6 IP | --drop-ipv6] [--move-old] | sync")
+    if not TOKEN:
+        panel_main(argv)
+        return
     if argv[1] == "check":
         call("GET", "/zones?per_page=1")
         print("Cloudflare: токен принят")
@@ -1496,21 +1560,21 @@ PY
 }
 
 setup_cloudflare() {
+  # по умолчанию DNS правит панель: токен Cloudflare лежит только на ней, нода доказывает себя ключом SECRET_KEY.
+  # CF_API_TOKEN=... включает прямой режим без панели
+  local out status=0
   CF_API_TOKEN="${CF_API_TOKEN:-}"
-  if [[ -z "$CF_API_TOKEN" && -f "$CF_ENV" ]]; then
-    CF_API_TOKEN="$(sed -n 's/^CF_API_TOKEN=//p' "$CF_ENV" | tail -n1)"
-  fi
-  if [[ -z "$CF_API_TOKEN" ]]; then
-    echo "Cloudflare: с API-токеном скрипт сам направит домены на эту ноду (A/AAAA, без оранжевого облака)."
-    echo "Токен: Cloudflare → My Profile → API Tokens → Create Token → «Edit zone DNS», зона — ваш домен."
-    read -r -s -p "Cloudflare API token (Enter — пропустить): " CF_API_TOKEN </dev/tty
-    echo
-  fi
-  [[ -n "$CF_API_TOKEN" ]] || return 0
   install_cf_helper
-  CF_API_TOKEN="$CF_API_TOKEN" "$CF_HELPER" check || die "Cloudflare не принял токен"
-  USE_CF=1
-  DNS_RESOLVER="1.1.1.1"
+  out="$(CF_API_TOKEN="$CF_API_TOKEN" SECRET_KEY="$SECRET_KEY" "$CF_HELPER" check 2>&1)" || status=$?
+  if (( status == 0 )); then
+    echo "$out"
+    USE_CF=1
+    DNS_RESOLVER="1.1.1.1"
+  elif (( status == 2 )); then
+    echo "DNS: на панели автоматика не настроена — проверяю записи как раньше"
+  else
+    echo "DNS: автоматика недоступна ($out) — проверяю записи как раньше"
+  fi
 }
 
 wait_public_dns() {
@@ -1537,7 +1601,7 @@ point_dns() {
   # нода переехала: всё, что в зоне смотрело на её старый IP, переводим на новый. сначала показываем список —
   # опечатка в домене иначе увела бы на этот сервер записи другой живой ноды
   local moving
-  moving="$(CF_API_TOKEN="$CF_API_TOKEN" "$CF_HELPER" plan "$domain" --ipv4 "$NODE_IPV4")" || die "Cloudflare: не удалось прочитать записи $domain"
+  moving="$(CF_API_TOKEN="$CF_API_TOKEN" SECRET_KEY="$SECRET_KEY" "$CF_HELPER" plan "$domain" --ipv4 "$NODE_IPV4")" || die "Cloudflare: не удалось прочитать записи $domain"
   if [[ -n "$moving" ]]; then
     echo "На старом IP ноды стоят и другие записи (имя, IP):"
     sed 's/^/  /' <<< "$moving"
@@ -1545,7 +1609,7 @@ point_dns() {
       extra+=(--move-old)
     fi
   fi
-  CF_API_TOKEN="$CF_API_TOKEN" "$CF_HELPER" set "$domain" --ipv4 "$NODE_IPV4" "${extra[@]}" || die "Не удалось обновить DNS $domain в Cloudflare"
+  CF_API_TOKEN="$CF_API_TOKEN" SECRET_KEY="$SECRET_KEY" "$CF_HELPER" set "$domain" --ipv4 "$NODE_IPV4" "${extra[@]}" || die "Не удалось обновить DNS $domain в Cloudflare"
   wait_public_dns "$domain" "$NODE_IPV4"
 }
 
@@ -1553,7 +1617,10 @@ enable_dns_watch() {
   local domains="$1"
   install -d -m 700 /etc/remnanode
   umask 077
-  printf 'CF_API_TOKEN=%s\nCF_DOMAINS="%s"\n' "$CF_API_TOKEN" "$domains" > "$CF_ENV"
+  {
+    printf 'CF_DOMAINS="%s"\n' "$domains"
+    if [[ -n "$CF_API_TOKEN" ]]; then printf 'CF_API_TOKEN=%s\n' "$CF_API_TOKEN"; fi
+  } > "$CF_ENV"
   umask 022
   cat > /etc/systemd/system/remnanode-cf-dns.service <<EOF
 [Unit]
@@ -1579,7 +1646,7 @@ WantedBy=timers.target
 EOF
   systemctl daemon-reload
   systemctl enable --now remnanode-cf-dns.timer >/dev/null
-  echo "Cloudflare: раз в 10 минут проверяю IP ноды и правлю DNS ($domains). Токен лежит в $CF_ENV (600)."
+  echo "DNS: раз в 10 минут проверяю IP ноды и правлю записи ($domains)"
 }
 
 [[ $EUID -eq 0 ]] || die "Run as root"
@@ -1675,7 +1742,7 @@ if (( ENABLE_SITE || ENABLE_HY2 )); then
     dns_names=""
     if (( ENABLE_SITE )); then point_dns "$SITE_DOMAIN"; dns_names="$SITE_DOMAIN"; fi
     if (( ENABLE_HY2 && ! SHARED_DOMAIN )); then point_dns "$HY2_DOMAIN"; dns_names="${dns_names:+$dns_names }$HY2_DOMAIN"; fi
-    if ask_yes_no "Следить за IP ноды и чинить DNS в Cloudflare автоматически? (токен останется на сервере)"; then
+    if ask_yes_no_default_yes "Следить за IP ноды и чинить DNS автоматически?"; then
       enable_dns_watch "$dns_names"
     fi
   fi
