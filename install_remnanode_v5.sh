@@ -158,7 +158,7 @@ configure_panel_firewall() {
     DEBIAN_FRONTEND=noninteractive apt-get install -y nftables
   fi
   mkdir -p /etc/remnanode /usr/local/sbin /etc/systemd/system/docker.service.d
-  printf 'NODE_PORT=%s\nPANEL_IP=%s\n' "$NODE_PORT" "$panel_ip" > /etc/remnanode/panel-firewall.conf
+  printf 'NODE_PORT=%s\nPANEL_IP=%s\nCLOSED_TCP="%s"\n' "$NODE_PORT" "$panel_ip" "$CLOSED_TCP" > /etc/remnanode/panel-firewall.conf
   chmod 600 /etc/remnanode/panel-firewall.conf
 
   cat > /usr/local/sbin/remnanode-panel-firewall <<'EOF'
@@ -176,6 +176,9 @@ source /etc/remnanode/panel-firewall.conf
   echo 'add rule inet remnanode_panel input iifname "lo" accept'
   printf 'add rule inet remnanode_panel input tcp dport %s ip saddr %s accept\n' "$NODE_PORT" "$PANEL_IP"
   printf 'add rule inet remnanode_panel input tcp dport %s drop\n' "$NODE_PORT"
+  for port in ${CLOSED_TCP:-}; do
+    printf 'add rule inet remnanode_panel input tcp dport %s drop\n' "$port"
+  done
 } | nft -f -
 
 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; then
@@ -1166,6 +1169,7 @@ server {
     tcp_nopush on;
     open_file_cache max=4000 inactive=60s;
     charset utf-8;
+$( [[ -f "$REMNA_DIR/selfsteal/h3" ]] && printf '    add_header Alt-Svc %s always;' "'h3=\":443\"; ma=86400'" )
     root $SITE_DIR;
     index index.html;
     error_page 404 /404.html;
@@ -1251,6 +1255,34 @@ copy_shared_hy2_cert() {
   install -m 644 "$source_dir/fullchain.pem" "$target_dir/fullchain.pem"
   install -m 600 "$source_dir/privkey.pem" "$target_dir/privkey.pem"
   echo "Hysteria2: скопирован сертификат self-steal в $target_dir"
+}
+
+CLOSED_TCP=""
+
+# лишний TCP-порт наружу — главный признак для сканеров: у обычного сайта только 80 и 443
+review_public_ports() {
+  local keep=" 22 80 443 $NODE_PORT " state local_addr peer proc port addr name previous="" ports="" listing=""
+  keep+="$(ss -Hltnp 2>/dev/null | awk '/"sshd"/ {n = split($4, a, ":"); print a[n]}' | sort -u | tr '\n' ' ')"
+  if [[ -f /etc/remnanode/panel-firewall.conf ]]; then
+    previous="$(sed -n 's/^CLOSED_TCP="\(.*\)"$/\1/p' /etc/remnanode/panel-firewall.conf)"
+  fi
+  while read -r state _ _ local_addr peer proc; do
+    port="${local_addr##*:}"
+    addr="${local_addr%:*}"
+    case "$addr" in 127.*|"[::1]"|*%lo) continue ;; esac
+    [[ "$port" =~ ^[0-9]+$ && "$keep" != *" $port "* && " $ports " != *" $port "* ]] || continue
+    name="$(sed -n 's/^users:(("\([^"]*\)".*/\1/p' <<< "$proc")"
+    ports+="${ports:+ }$port"
+    listing+="  $port/tcp — ${name:-неизвестный процесс}"$'\n'
+  done < <(ss -Hltnp 2>/dev/null)
+  CLOSED_TCP="$previous"
+  if [[ -n "$ports" ]]; then
+    echo "Наружу открыты лишние TCP-порты (сканеры видят их как признак прокси):"
+    printf '%s' "$listing"
+    if ask_yes_no_default_yes "Закрыть их снаружи? Локально сервисы продолжат работать"; then
+      CLOSED_TCP="$(printf '%s\n' $previous $ports | sort -un | tr '\n' ' ' | sed 's/ $//')"
+    fi
+  fi
 }
 
 detect_node_ips() {
@@ -1772,6 +1804,8 @@ if (( ENABLE_SITE )); then
     # Нельзя объявлять два server_name на одном порту 80 для одного домена.
     rm -f "$HY2_ACME_CONF"
   fi
+  # на том же домене по UDP 443 работает Hysteria2: настоящий сайт объявляет HTTP/3 сам
+  if (( ENABLE_HY2 && SHARED_DOMAIN )); then touch "$REMNA_DIR/selfsteal/h3"; else rm -f "$REMNA_DIR/selfsteal/h3"; fi
   write_nginx_conf 0
   if (( ENABLE_HY2 && ! SHARED_DOMAIN )); then start_hy2_acme; fi
   if [[ -f "/etc/letsencrypt/live/$SITE_DOMAIN/fullchain.pem" ]]; then
@@ -1818,6 +1852,7 @@ if [[ -d /etc/letsencrypt ]]; then
 EOF
 fi
 
+review_public_ports
 configure_panel_firewall
 
 if (( ENABLE_HY2 )); then
@@ -1880,7 +1915,7 @@ if (( ENABLE_HY2 )); then
     echo "Hysteria2: общий домен $HY2_DOMAIN, копия сертификата /etc/letsencrypt/hysteria2/$HY2_DOMAIN/fullchain.pem"
     echo "Hysteria2: приватный ключ /etc/letsencrypt/hysteria2/$HY2_DOMAIN/privkey.pem"
     echo "Сертификат Hysteria2 будет повторно копироваться при продлении Certbot."
-    echo "Hysteria2: для ответа тем же сайтом по HTTP/3 добавьте в streamSettings.hysteriaSettings этого inbound:"
+    echo "Hysteria2: в профиле панели у этого inbound в streamSettings.hysteriaSettings добавьте (по HTTP/3 отвечает тот же сайт):"
     cat <<EOF
 "masquerade": {
   "type": "proxy",
@@ -1892,4 +1927,17 @@ EOF
   else
     echo "Hysteria2: отдельный домен $HY2_DOMAIN, сертификат /etc/letsencrypt/live/$HY2_DOMAIN/fullchain.pem"
   fi
+  # стандартное окно Hysteria (20 МБ) сканеры ловят как признак прокси; со стартом как у обычного HTTP/3
+  # окна растут сами, скорость на замере та же (≈300 Мбит/с до и после)
+  echo "Hysteria2: и в streamSettings этого inbound — стартовые окна QUIC как у обычного сайта:"
+  cat <<'EOF'
+"finalmask": {
+  "quicParams": {
+    "initStreamReceiveWindow": 524288,
+    "maxStreamReceiveWindow": 8388608,
+    "initConnectionReceiveWindow": 786432,
+    "maxConnectionReceiveWindow": 20971520
+  }
+}
+EOF
 fi
