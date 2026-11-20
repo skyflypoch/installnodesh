@@ -1603,9 +1603,9 @@ point_dns() {
   local moving
   moving="$(CF_API_TOKEN="$CF_API_TOKEN" SECRET_KEY="$SECRET_KEY" "$CF_HELPER" plan "$domain" --ipv4 "$NODE_IPV4")" || die "Cloudflare: не удалось прочитать записи $domain"
   if [[ -n "$moving" ]]; then
-    echo "На старом IP ноды стоят и другие записи (имя, IP):"
+    echo "На старом IP ноды висит ещё (переедет на новый вместе с доменом):"
     sed 's/^/  /' <<< "$moving"
-    if ask_yes_no_default_yes "Перевести их на $NODE_IPV4 вместе с $domain?"; then
+    if ask_yes_no_default_yes "Перевести всё это на $NODE_IPV4?"; then
       extra+=(--move-old)
     fi
   fi
